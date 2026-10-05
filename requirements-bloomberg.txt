@@ -1,0 +1,3 @@
+# Bloomberg's official Python package repository.
+--index-url https://blpapi.bloomberg.com/repository/releases/python/simple/
+blpapi==3.26.9.1

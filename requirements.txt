@@ -1,0 +1,9 @@
+# Versions installed in the working Python 3.13 environment.
+# Install Bloomberg separately using requirements-bloomberg.txt (see README).
+numpy==2.5.3
+pandas==3.0.6
+pyarrow==25.0.1
+openpyxl==3.1.5
+XlsxWriter==3.2.9
+protobuf==7.36.2
+websockets==17.2

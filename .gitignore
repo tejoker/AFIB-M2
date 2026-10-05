@@ -1,0 +1,54 @@
+# Local credentials and environment secrets (in any directory)
+[Pp]assword*
+*[Pp]assword*.json
+[Cc]redentials*
+*[Cc]redentials*.json
+[Ss]ecret*
+*[Ss]ecret*.json
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+!cqg_credentials.example.json
+!.env.example
+
+# Python environments, bytecode and tool caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local editor settings and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Bloomberg exports, downloaded research data and runtime logs
+/data/
+/logs/
+/russell1000_liquidity_analysis/
+*.log
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.h5
+*.hdf5
+
+# Downloaded upstream sample tree; cqg_proto/ is required by our scripts
+/WebAPIPythonSamples-main/
