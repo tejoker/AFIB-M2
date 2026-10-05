@@ -31,7 +31,7 @@ def request(securities,fields,kind='ReferenceDataRequest',params=None,overrides=
 
 import numpy as np, pandas as pd, math, pathlib, collections
 SAVE = '--save' in sys.argv
-ROOT=pathlib.Path.cwd() / 'russell1000_liquidity_analysis'
+ROOT=pathlib.Path(__file__).resolve().parents[2] / 'russell1000_liquidity_analysis'
 REF_FIELDS=['NAME','ID_BB_GLOBAL_COMPANY','ID_BB_GLOBAL','GICS_SECTOR','GICS_INDUSTRY','GICS_SUB_INDUSTRY','COUNTRY_ISO','CRNCY','CUR_MKT_CAP','EQY_SH_OUT','EQY_FLOAT','PX_LAST','PX_BID','PX_ASK','LAST_UPDATE_DT','VOLUME_AVG_20D','VOLUME_AVG_3M','PE_RATIO','BEST_PE_RATIO','CURRENT_EV_TO_T12M_EBITDA','PX_TO_BOOK_RATIO','RETURN_ON_ASSET','RETURN_COM_EQY','PROF_MARGIN','SALES_GROWTH','NET_DEBT_TO_EBITDA','TRAIL_12M_NET_INC','BETA_RAW_OVERRIDABLE','BEST_SALES','BEST_EPS']
 sector_names={10:'Energy',15:'Materials',20:'Industrials',25:'Consumer discretionary',30:'Consumer staples',35:'Health care',40:'Financials',45:'Information technology',50:'Communication services',55:'Utilities',60:'Real estate'}
 def progress(x):print(x,flush=True)

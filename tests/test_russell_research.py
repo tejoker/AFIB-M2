@@ -1,9 +1,12 @@
 """Verify financial units, calendar gaps, splits and membership observation timing."""
+import sys
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research" / "russell_liquidity"))
 from collect_russell_research import monthly_features, merge_membership
 
 

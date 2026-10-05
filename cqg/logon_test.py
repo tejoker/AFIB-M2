@@ -5,14 +5,14 @@ from pathlib import Path
 
 import websockets
 
-ROOT = Path(__file__).parent
+HERE = Path(__file__).resolve().parent
 # CQG's generated protobuf modules (WebAPI/, common/), kept apart from the samples repo's bundled google/ package.
-sys.path.insert(0, str(ROOT / "cqg_proto"))
+sys.path.insert(0, str(HERE.parent / "vendor" / "cqg_proto"))
 
 from WebAPI.webapi_2_pb2 import ClientMsg, ServerMsg
 from WebAPI.user_session_2_pb2 import LogonResult
 
-creds = json.loads((ROOT / "cqg_credentials.json").read_text(encoding="utf-8"))
+creds = json.loads((HERE / "credentials.json").read_text(encoding="utf-8"))
 
 
 async def recv_server_msg(ws, timeout=15):

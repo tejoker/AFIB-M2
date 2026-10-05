@@ -1,6 +1,6 @@
 """Keeps every command listed in programs.txt running, restarting any that exit.
 
-One command per line, run from this folder. Lines starting with # are ignored.
+One command per line, run from the repository root. Lines starting with # are ignored.
 The file is re-read every 30s, so you can add/remove programs without restarting.
 Each program's output goes to logs/<name>.log; the runner itself logs to logs/runner.log.
 """
@@ -12,8 +12,8 @@ import subprocess
 import sys
 import time
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROGRAMS_FILE = os.path.join(BASE_DIR, "programs.txt")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROGRAMS_FILE = os.path.join(BASE_DIR, "tools", "programs.txt")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 CHECK_INTERVAL = 30
 

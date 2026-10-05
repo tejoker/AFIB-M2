@@ -1,0 +1,2 @@
+# One command per line. Runs from the repository root. Changes are picked up within 30s.
+python cqg/websocket_test.py

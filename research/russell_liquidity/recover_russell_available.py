@@ -9,7 +9,7 @@ import pandas as pd
 
 import collect_russell_research as rr
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]  # repository root (data/ and russell1000_liquidity_analysis/)
 OUTPUT = ROOT / "data" / "russell_research_20261005"
 AMOUNTS = """SALES_REV_TURN EBITDA EBIT NET_INCOME IS_INC_BEF_XO_ITEM BS_TOT_ASSET BS_TOT_LIAB2
 TOT_COMMON_EQY SHORT_AND_LONG_TERM_DEBT NET_DEBT BS_CASH_NEAR_CASH_ITEM CF_CASH_FROM_OPER

@@ -13,8 +13,10 @@
 *.pfx
 id_rsa*
 id_ed25519*
-!cqg_credentials.example.json
+!credentials.example.json
 !.env.example
+# Team account list for bloomberg/bbg_collect.py: lives in the shared data folder, never committed
+accounts.json
 
 # Python environments, bytecode and tool caches
 .venv/
@@ -31,8 +33,9 @@ build/
 dist/
 *.egg-info/
 
-# Local editor settings and operating system files
-.vscode/
+# Local editor settings and operating system files (the shared interpreter setting is kept)
+.vscode/*
+!.vscode/settings.json
 .idea/
 .DS_Store
 Thumbs.db
@@ -50,5 +53,5 @@ Thumbs.db
 *.h5
 *.hdf5
 
-# Downloaded upstream sample tree; cqg_proto/ is required by our scripts
+# Downloaded upstream sample tree; vendor/cqg_proto/ is required by our scripts
 /WebAPIPythonSamples-main/

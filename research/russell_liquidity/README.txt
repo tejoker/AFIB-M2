@@ -1,6 +1,6 @@
 RUSSELL RESEARCH DATA
 
-Collect: .venv\Scripts\python.exe collect_russell_research.py
+Collect (from the repository root): .venv\Scripts\python.exe research\russell_liquidity\collect_russell_research.py
 Resume: run the same command; complete API responses are reused from gzip JSON cache.
 Build exports from saved data: add --build-only.
 Changing date windows or batch sizes requires a different --output directory.

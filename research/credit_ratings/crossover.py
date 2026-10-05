@@ -1,5 +1,7 @@
 """Screen S&P 500 and STOXX 600 issuers sitting at the IG/HY frontier (BBB-/BB+)."""
+import os
 import re
+from pathlib import Path
 
 import blpapi
 import pandas as pd
@@ -18,7 +20,8 @@ FIELDS = {
     "NET_DEBT_TO_EBITDA": "Net debt/EBITDA",
     "CDS_SPREAD_TICKER_5Y": "CDS ticker",
 }
-OUTPUT = "crossover_issuers.xlsx"
+# Written to the (never committed) data folder; bloomberg/bbg_collect.py reads it as tier 1
+OUTPUT = Path(os.environ.get("BBG_DATA_DIR", Path(__file__).resolve().parents[2] / "data")) / "crossover_issuers.xlsx"
 
 # Notch scale: AAA = 1 ... BBB- = 10 (last IG notch), BB+ = 11 (first HY notch)
 SP_SCALE = ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-",

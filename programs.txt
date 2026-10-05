@@ -1,2 +1,0 @@
-# One command per line. Runs from the Bloomberg folder. Changes are picked up within 30s.
-python test.py

@@ -469,7 +469,7 @@ def build_outputs(members, reference, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parent / "data" / "russell_research_20261005")
+    parser.add_argument("--output", type=Path, default=Path(__file__).resolve().parents[2] / "data" / "russell_research_20261005")
     parser.add_argument("--snapshot-date", default="2026-10-05")
     parser.add_argument("--as-of", default="2026-10-02")
     parser.add_argument("--daily-start", default="2021-01-01")
