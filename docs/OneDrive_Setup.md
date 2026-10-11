@@ -108,6 +108,7 @@ The Bloomberg collector, CME probe, credit crossover, CME downloader, seasonalit
 | `accounts.json` | Ordered Bloomberg collector account list, added before Bloomberg collection |
 | `commodities/` | CME Yahoo history and descriptive seasonality outputs |
 | `futures/` | Bloomberg futures contract chains, details and daily histories; roll-correct series and strategy research outputs |
+| `futures/dashboard.html` | Trading desk dashboard rebuilt by `cme_challenge/refresh.py`, with `live/`, `weather/` and `model/` inputs next to it |
 | `universe.parquet`, `fields.parquet` | Frozen ticker universe and known fields |
 | `state/progress_ACCOUNT.json` | Completed tickers for each account |
 | `state/limit_ACCOUNT.json` | Account cooldown after a Bloomberg limit |

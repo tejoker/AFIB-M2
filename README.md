@@ -87,6 +87,22 @@ python cme_challenge/futures_research.py signals --risk 5000         # current s
 
 Returns are within-contract price changes before commissions. They describe history and are not trade recommendations.
 
+## Trading desk: latest data and model view before each trade
+
+```powershell
+python cme_challenge/refresh.py --watch 15      # refresh every 15 minutes during trading; Ctrl+C to stop
+python cme_challenge/refresh.py                 # refresh once and open the dashboard
+python cme_challenge/refresh.py --bloomberg     # on a Bloomberg PC: also update contract histories and the model
+```
+
+Each refresh:
+- pulls the latest prices for all 34 markets from Yahoo (delayed about 10 minutes) and picks the contract to trade;
+- recomputes trend, carry, seasonality and the model's view, with position sizes;
+- fetches the US heating-demand outlook from ECMWF's AI model (AIFS), ECMWF IFS and NOAA GFS through [Open-Meteo](https://open-meteo.com/), which is free for non-commercial use;
+- writes `futures/dashboard.html` in the data folder.
+
+With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the Bloomberg contract history has been collected (previous section). The first refresh also downloads ten years of weather normals (about four minutes, once). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
+
 ## Research workflow (Russell liquidity)
 
 ```powershell

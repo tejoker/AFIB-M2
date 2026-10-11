@@ -31,6 +31,7 @@ import pandas as pd
 
 from bbg_collect import (DATA, LOGS, Bloomberg, BudgetExhausted, LimitReached, chunks, clean, safe_name, write_json,
                          write_parquet)
+from futures_markets import MARKETS  # repository root, put on the path by bbg_collect
 
 FUT = DATA / "futures"
 CHAINS = FUT / "chains"
@@ -39,47 +40,9 @@ CONTRACTS = FUT / "contracts.parquet"
 STATE_FILE = FUT / "state.json"
 CHAIN_MAX_AGE = timedelta(days=7)
 MONTH_CODES = "FGHJKMNQUVXZ"  # Jan ... Dec
-ALL_MONTHS = MONTH_CODES
-
-# Bloomberg root (exactly as in its tickers, e.g. "C " for corn): yellow key, liquid contract months (other listed
-# months are thin and skipped), name, sector, collection tier. The challenge allows agriculture, energy, equity
-# index, FX, interest rate and metals futures; micro contracts move like their full-size versions.
-ROOTS = {
-    "LC": ("Comdty", "GJMQVZ", "Live Cattle", "Livestock", 1),
-    "LH": ("Comdty", "GJKMNQVZ", "Lean Hogs", "Livestock", 2),
-    "FC": ("Comdty", "FHJKQUVX", "Feeder Cattle", "Livestock", 2),
-    "C ": ("Comdty", "HKNUZ", "Corn", "Grains", 2),
-    "S ": ("Comdty", "FHKNQUX", "Soybeans", "Grains", 2),
-    "SM": ("Comdty", "FHKNQUVZ", "Soybean Meal", "Grains", 2),
-    "BO": ("Comdty", "FHKNQUVZ", "Soybean Oil", "Grains", 2),
-    "W ": ("Comdty", "HKNUZ", "Chicago SRW Wheat", "Grains", 2),
-    "KW": ("Comdty", "HKNUZ", "KC HRW Wheat", "Grains", 2),
-    "CL": ("Comdty", ALL_MONTHS, "WTI Crude Oil", "Energy", 2),
-    "NG": ("Comdty", ALL_MONTHS, "Henry Hub Natural Gas", "Energy", 2),
-    "HO": ("Comdty", ALL_MONTHS, "NY Harbor ULSD", "Energy", 2),
-    "XB": ("Comdty", ALL_MONTHS, "RBOB Gasoline", "Energy", 2),
-    "GC": ("Comdty", "GJMQVZ", "Gold", "Metals", 2),
-    "SI": ("Comdty", "HKNUZ", "Silver", "Metals", 2),
-    "HG": ("Comdty", "HKNUZ", "Copper", "Metals", 2),
-    "PL": ("Comdty", "FJNV", "Platinum", "Metals", 2),
-    "PA": ("Comdty", "HMUZ", "Palladium", "Metals", 2),
-    "ES": ("Index", "HMUZ", "E-mini S&P 500", "Equity index", 3),
-    "NQ": ("Index", "HMUZ", "E-mini Nasdaq-100", "Equity index", 3),
-    "RTY": ("Index", "HMUZ", "E-mini Russell 2000", "Equity index", 3),
-    "DM": ("Index", "HMUZ", "E-mini Dow", "Equity index", 3),
-    "TU": ("Comdty", "HMUZ", "2Y T-Note", "Rates", 3),
-    "FV": ("Comdty", "HMUZ", "5Y T-Note", "Rates", 3),
-    "TY": ("Comdty", "HMUZ", "10Y T-Note", "Rates", 3),
-    "US": ("Comdty", "HMUZ", "T-Bond", "Rates", 3),
-    "WN": ("Comdty", "HMUZ", "Ultra T-Bond", "Rates", 3),
-    "SFR": ("Comdty", "HMUZ", "3M SOFR", "Rates", 3),
-    "EC": ("Curncy", "HMUZ", "Euro FX", "FX", 3),
-    "JY": ("Curncy", "HMUZ", "Japanese Yen", "FX", 3),
-    "BP": ("Curncy", "HMUZ", "British Pound", "FX", 3),
-    "AD": ("Curncy", "HMUZ", "Australian Dollar", "FX", 3),
-    "CD": ("Curncy", "HMUZ", "Canadian Dollar", "FX", 3),
-    "SF": ("Curncy", "HMUZ", "Swiss Franc", "FX", 3),
-}
+# Bloomberg root: yellow key, liquid contract months (other listed months are thin and skipped), name, sector,
+# collection tier. The market list itself lives in futures_markets.py, shared with the Yahoo side.
+ROOTS = {root: (m.bbg_key, m.months, m.name, m.sector, m.tier) for root, m in MARKETS.items()}
 META_FIELDS = ["LAST_TRADEABLE_DT", "FUT_NOTICE_FIRST", "FUT_VAL_PT", "FUT_TICK_SIZE", "FUT_TICK_VAL", "CRNCY"]
 HISTORY_BATCH = 10  # contracts per history request
 
