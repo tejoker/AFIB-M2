@@ -1,10 +1,13 @@
 """Screen S&P 500 and STOXX 600 issuers sitting at the IG/HY frontier (BBB-/BB+)."""
-import os
 import re
+import sys
 from pathlib import Path
 
 import blpapi
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repository root
+from data_root import DATA
 
 INDICES = ["SPX Index", "SXXP Index"]
 FIELDS = {
@@ -21,7 +24,7 @@ FIELDS = {
     "CDS_SPREAD_TICKER_5Y": "CDS ticker",
 }
 # Written to the (never committed) data folder; bloomberg/bbg_collect.py reads it as tier 1
-OUTPUT = Path(os.environ.get("BBG_DATA_DIR", Path(__file__).resolve().parents[2] / "data")) / "crossover_issuers.xlsx"
+OUTPUT = DATA / "crossover_issuers.xlsx"
 
 # Notch scale: AAA = 1 ... BBB- = 10 (last IG notch), BB+ = 11 (first HY notch)
 SP_SCALE = ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-",

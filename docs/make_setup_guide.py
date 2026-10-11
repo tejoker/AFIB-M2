@@ -1,7 +1,7 @@
 ﻿"""Build docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf.
 
 Needs reportlab, which the project itself doesn't use:  .venv\\Scripts\\python.exe -m pip install reportlab
-Uses Windows' Segoe UI and Consolas fonts.
+Uses Windows' Segoe UI and Consolas fonts; where they are missing (e.g. Linux), the Liberation fonts.
 """
 from pathlib import Path
 
@@ -20,14 +20,21 @@ from reportlab.platypus import (BaseDocTemplate, Frame, KeepTogether, ListFlowab
 REPO = Path(__file__).resolve().parents[1]
 OUT = Path(__file__).resolve().parent / "Team_Setup_Guide_Bloomberg_Python_VSCode.pdf"
 
-F = r"C:\Windows\Fonts"
-pdfmetrics.registerFont(TTFont("Sans", f"{F}\\segoeui.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Bold", f"{F}\\segoeuib.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Italic", f"{F}\\segoeuii.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Semi", f"{F}\\seguisb.ttf"))
-pdfmetrics.registerFont(TTFont("Sans-Light", f"{F}\\segoeuisl.ttf"))
-pdfmetrics.registerFont(TTFont("Mono", f"{F}\\consola.ttf"))
-pdfmetrics.registerFont(TTFont("Mono-Bold", f"{F}\\consolab.ttf"))
+WINDOWS_FONTS = Path(r"C:\Windows\Fonts")
+LIBERATION_FONTS = Path("/usr/share/fonts/truetype/liberation")
+FONTS = {  # name: (Windows font, fallback)
+    "Sans": ("segoeui.ttf", "LiberationSans-Regular.ttf"),
+    "Sans-Bold": ("segoeuib.ttf", "LiberationSans-Bold.ttf"),
+    "Sans-Italic": ("segoeuii.ttf", "LiberationSans-Italic.ttf"),
+    "Sans-Semi": ("seguisb.ttf", "LiberationSans-Bold.ttf"),
+    "Sans-Light": ("segoeuisl.ttf", "LiberationSans-Regular.ttf"),
+    "Mono": ("consola.ttf", "LiberationMono-Regular.ttf"),
+    "Mono-Bold": ("consolab.ttf", "LiberationMono-Bold.ttf"),
+}
+on_windows = (WINDOWS_FONTS / "segoeui.ttf").exists()
+for name, (windows_font, fallback) in FONTS.items():
+    pdfmetrics.registerFont(TTFont(name, str(WINDOWS_FONTS / windows_font if on_windows else LIBERATION_FONTS / fallback)))
+MONO_SCALE = 1 if on_windows else 0.55 / 0.6  # Liberation Mono is wider than Consolas; keep code lines in their boxes
 addMapping("Sans", 0, 0, "Sans"); addMapping("Sans", 1, 0, "Sans-Bold")
 addMapping("Sans", 0, 1, "Sans-Italic"); addMapping("Sans", 1, 1, "Sans-Bold")
 addMapping("Mono", 0, 0, "Mono"); addMapping("Mono", 1, 0, "Mono-Bold")
@@ -54,17 +61,17 @@ kicker = ParagraphStyle("kicker", fontName="Sans-Semi", fontSize=9, leading=12, 
                         keepWithNext=1)
 lead = ParagraphStyle("lead", parent=body, fontSize=10.5, leading=15.5, textColor=MUTED, spaceAfter=10, keepWithNext=1)
 body_kwn = ParagraphStyle("body_kwn", parent=body, keepWithNext=1)
-code = ParagraphStyle("code", fontName="Mono", fontSize=8.6, leading=12, textColor=INK)
+code = ParagraphStyle("code", fontName="Mono", fontSize=8.6 * MONO_SCALE, leading=12, textColor=INK)
 cell = ParagraphStyle("cell", parent=body, fontSize=8.8, leading=12, spaceAfter=0)
 cell_b = ParagraphStyle("cellb", parent=cell, fontName="Sans-Semi")
-cell_mono = ParagraphStyle("cellm", parent=cell, fontName="Mono", fontSize=8.2)
+cell_mono = ParagraphStyle("cellm", parent=cell, fontName="Mono", fontSize=8.2 * MONO_SCALE)
 
 W = A4[0] - 2 * 20 * mm
 
 
 def c(t):
     """Inline code span."""
-    return f'<font face="Mono" size="9" color="#0B3A8C">{t}</font>'
+    return f'<font face="Mono" size="{9 * MONO_SCALE:.2f}" color="#0B3A8C">{t}</font>'
 
 
 def P(text, style=body):
@@ -475,17 +482,21 @@ s += code_block("""
 # --------------------------------------------------------------------------- step 8
 s += step(8, "Set up your account for the shared data collector",
           "bloomberg\\bbg_collect.py downloads the project dataset. Several teammates can run it, each with "
-          "their own Bloomberg login: the work is split between accounts and nothing is downloaded twice.")
+          "their own Bloomberg login. For a school OneDrive folder, see docs/OneDrive_Setup.md for "
+          "the current setup and handoff steps.")
 s += [P("8.1  Connect to the shared data folder", h2)]
-s += P("All accounts must write to the <b>same</b> data folder, so they can see each other's progress. The team "
-       "keeps it in a shared OneDrive/SharePoint folder (never on GitHub). Once that folder is synced to your PC, "
-       "tell the scripts where it is (adapt the path), then close and reopen VS Code:")
+s += P("All accounts must write to synced copies of the <b>same</b> school OneDrive/SharePoint folder. "
+       "Give named teammates edit access, mark the folder Always keep on this device, and wait until OneDrive "
+       "says Up to date. Set this PC's local path, then close and reopen VS Code:")
 s += code_block("""
-[Environment]::SetEnvironmentVariable("BBG_DATA_DIR",
+[Environment]::SetEnvironmentVariable("AFIB_DATA_DIR",
     "C:\\Users\\<you>\\OneDrive - <University>\\AFIB-data", "User")
 """)
-s += P(f"Without this setting the scripts use the {c('data')} folder inside the repository, which only you see.",
+s += P(f"Without this setting the main collector uses the {c('data')} folder inside the repository, which only you see.",
        small)
+s += P("One teammate initializes the folder once with " + c('tools\\check_shared_data.py --init --accounts ...') +
+       ". Everyone runs the checker and compares its Storage ID before collecting. Full commands are in "
+       "docs/OneDrive_Setup.md.")
 s += [P("8.2  Find your account name", h2)]
 s += P("The collector identifies you by your Windows user name. In the VS Code terminal run:")
 s += code_block("""
@@ -508,12 +519,15 @@ s += code_block("""
 s += P(f"{c('--status')} shows progress per dataset and per account, without using Bloomberg. The second "
        "command collects whatever is still missing, starting with the data the regression needs. It saves "
        "after every batch, so you can stop it at any time (Ctrl+C) and run it again later.")
+s += callout("warn", "With OneDrive, run one collector at a time. When one teammate stops, wait for "
+             "OneDrive to say Up to date on both PCs before the next teammate resumes. Sync delay can "
+             "otherwise cause duplicate API requests or conflicting files.")
 s += bullets([
     f"When Bloomberg's daily limit for your login is reached, the collector stops by itself with "
     f"{c('Daily capacity reached')} and refuses to run for 12 hours. That's normal: run it again the next day, "
-    "while the other accounts carry on.",
+    "then another account can continue after the OneDrive handoff.",
     f"If the data folder cannot be shared, each person collects into their own {c('data')} folder and you copy "
-    "them together later: the files never overwrite each other, but some batches may be fetched twice.",
+    "them together later: per-account data parts have distinct names, but some batches may be fetched twice.",
 ])
 s += callout("warn", "Bloomberg licenses its data to each individual user. Keep downloaded data private to the "
                      "team (never in a public repository or website), and check with whoever manages your "
@@ -584,7 +598,7 @@ s += table([
      "the Extensions panel instead."],
     ["12", f"<i>Account 'x' is not listed in accounts.json</i>",
      "Add your account name (Step 8.2) to accounts.json in the shared data folder, or pass --account with a "
-     "listed name. If the file only lists you, BBG_DATA_DIR is probably not set (Step 8.1)."],
+     "listed name. If the file only lists you, AFIB_DATA_DIR is probably not set (Step 8.1)."],
     ["13", "No module named 'WebAPI' or 'bbg_collect'",
      "Run scripts from the repository root, as written in this guide (e.g. bloomberg\\bbg_collect.py), "
      "and after a git pull, not from an old copy of the folder."],
@@ -628,4 +642,3 @@ s += table([
 
 doc.build(s)
 print("written", OUT)
-

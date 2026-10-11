@@ -3,8 +3,9 @@
 Several Bloomberg logins (one per machine, since the Desktop API only talks to the local
 Terminal) share one data folder. Work is split into fixed batches; each account owns every
 n-th batch, does its own first, then picks up unfinished batches from the others. Progress,
-claims and output files are all per account, so the folder can be shared live (network drive,
-OneDrive/SharePoint) or merged later by simply copying folders together - nothing conflicts.
+claims and output files are per account. Live claims work on a network drive;
+OneDrive/SharePoint sync can lag, so use one active collector at a time there and
+wait for sync to finish before another account resumes.
 
 Datasets, in priority order (mandatory ones for the credit regression come first):
   reference           ratings/outlooks/dates, identifiers, sector, country, CDS tickers (monthly round)
@@ -14,7 +15,7 @@ Datasets, in priority order (mandatory ones for the credit regression come first
 
 Setup: list the accounts once in <data>/accounts.json, e.g. {"accounts": ["alice", "bob", "carol"]}.
 The account name defaults to the Windows user name; override with --account. <data> is the
-folder in BBG_DATA_DIR, or data/ in the repository; it is never committed.
+folder in AFIB_DATA_DIR (or legacy BBG_DATA_DIR), or data/ in the repository; it is never committed.
 
 Usage (from the repository root):
     python bloomberg/bbg_collect.py                     # collect everything still missing
@@ -42,8 +43,9 @@ import pyarrow.parquet as pq
 
 REPO = Path(__file__).resolve().parents[1]
 # The data folder holds everything Bloomberg-derived plus the team's shared config, and is never
-# committed. Point BBG_DATA_DIR at a shared (e.g. OneDrive) folder so all accounts see one state.
-DATA = Path(os.environ.get("BBG_DATA_DIR", REPO / "data"))
+# committed. Point AFIB_DATA_DIR at a shared (e.g. OneDrive) folder so all accounts see one state.
+sys.path.insert(0, str(REPO))
+from data_root import DATA
 LOGS = Path(os.environ.get("BBG_LOG_DIR", REPO / "logs"))
 STATE = DATA / "state"
 CLAIMS = STATE / "claims"
@@ -632,7 +634,11 @@ def run_plan(bbg, state, claims, uni, accounts, account, args, valid):
 # --------------------------------------------------------------------------- reporting
 
 def status():
-    uni = pd.read_parquet(DATA / "universe.parquet")
+    universe_path = DATA / "universe.parquet"
+    if not universe_path.exists():
+        print(f"No universe yet in {DATA}; run the collector once before checking progress.")
+        return
+    uni = pd.read_parquet(universe_path)
     files = sorted(STATE.glob("progress_*.json"))
     accounts = {json.loads(p.read_text()).get("account", p.stem): json.loads(p.read_text()) for p in files}
     rows = []

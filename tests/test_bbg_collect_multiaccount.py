@@ -31,7 +31,9 @@ class MultiAccountCollection(unittest.TestCase):
         tickers = [f"T{i:03d} US Equity" for i in range(N_TICKERS)]
         pd.DataFrame({"ticker": tickers, "tier": [1] * 10 + [2] * 40 + [3] * 100, "indices": "X"}).to_parquet(
             cls.data / "universe.parquet", index=False)
-        cls.env = {**os.environ, "BBG_DATA_DIR": str(cls.data), "BBG_LOG_DIR": str(Path(cls.tmp.name) / "logs"),
+        # AFIB_DATA_DIR takes precedence over BBG_DATA_DIR, so it must be the one overridden: teammates set it
+        # permanently to the shared team folder
+        cls.env = {**os.environ, "AFIB_DATA_DIR": str(cls.data), "BBG_LOG_DIR": str(Path(cls.tmp.name) / "logs"),
                    "BBG_CLAIM_SETTLE": "0.05"}  # local disk: claims are visible at once
         procs = [subprocess.Popen([sys.executable, str(HELPER), name, str(limit)], env=cls.env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)

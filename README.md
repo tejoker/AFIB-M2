@@ -2,7 +2,7 @@
 
 Python tools for the team's Bloomberg data collection, credit-rating and Russell liquidity research, and preparation for the CME University Trading Challenge (CQG connectivity, futures research).
 
-The full setup walkthrough for a new teammate is in [docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf](docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf).
+The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf](docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf). For shared CME and Bloomberg research data on school OneDrive, follow [docs/OneDrive_Setup.md](docs/OneDrive_Setup.md); it supersedes the PDF's shared-folder instructions.
 
 ## Layout
 
@@ -11,10 +11,10 @@ The full setup walkthrough for a new teammate is in [docs/Team_Setup_Guide_Bloom
 | `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
 | `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`) and regression data checks |
 | `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
-| `cme_challenge/` | CME challenge research, e.g. commodity futures history (`fetch_commodities.py`) |
+| `cme_challenge/` | CME commodity proxy downloads and descriptive seasonality research; no Bloomberg login needed |
 | `cqg/` | CQG Web API connectivity tests and the credentials template |
 | `tests/` | Offline tests; no Bloomberg or CQG access needed |
-| `tools/` | `runner.py` keeps the commands in `tools/programs.txt` running |
+| `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
 | `vendor/cqg_proto/` | CQG's generated protocol modules, under the terms in `vendor/cqg_proto/LICENSE.md` |
 | `docs/` | Setup guide and its generator |
 
@@ -41,13 +41,13 @@ Copy-Item cqg\credentials.example.json cqg\credentials.json
 
 ## Data stays out of the repository
 
-Nothing downloaded from Bloomberg or CQG is committed: Bloomberg data is licensed to each user, and this repository is public. The data folder holds the downloaded datasets, collector progress, the frozen ticker universe and the team account list (`accounts.json`).
+Nothing downloaded from Bloomberg or CQG is committed: Bloomberg data is licensed to each user, and this repository is public. The main Bloomberg collector's data folder holds its downloaded datasets, progress, frozen ticker universe and team account list (`accounts.json`).
 
-- By default, scripts use `data/` in the repository (git-ignored).
-- To share collection between accounts, put the data folder in the team's OneDrive/SharePoint folder and point every machine at it:
+- By default, the scripts use `data/` in the repository (git-ignored); `data_root.py` decides the folder for all of them. The Russell research scripts keep their own `--output` folder.
+- To share data between teammates, use the [OneDrive setup guide](docs/OneDrive_Setup.md). Each machine points `AFIB_DATA_DIR` at its own synced copy of the same school folder. Existing `BBG_DATA_DIR` setups remain supported:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("BBG_DATA_DIR", "C:\Users\<you>\OneDrive - <University>\AFIB-data", "User")
+[Environment]::SetEnvironmentVariable("AFIB_DATA_DIR", "C:\Users\<you>\OneDrive - <University>\AFIB-data", "User")
 ```
 
 Credentials (`cqg/credentials.json`, password and secret files), virtual environments, logs and exports are excluded by `.gitignore`.
@@ -60,7 +60,16 @@ python bloomberg/bbg_collect.py                   # collect whatever is missing
 python bloomberg/bbg_collect.py --mandatory-only  # only what the credit regression needs
 ```
 
-Each teammate runs it with their own Bloomberg login; `accounts.json` in the data folder lists the accounts (same order everywhere, never reordered). Work is split into batches, progress is saved after each one, and an account that reaches Bloomberg's daily limit stops for 12 hours while the others continue.
+Each teammate runs it with their own Bloomberg login; `accounts.json` in the data folder lists the accounts (same order everywhere, never reordered). Work is split into batches and progress is saved after each one. With OneDrive, use one active collector at a time and wait for sync before another account resumes. An account that reaches Bloomberg's limit stops for the configured cooldown; another account can continue after the handoff.
+
+## CME research without Bloomberg
+
+```powershell
+python cme_challenge/fetch_commodities.py
+python cme_challenge/summarize_seasonality.py
+```
+
+These commands save Yahoo continuous front-month commodity proxies and a descriptive calendar-month summary under `commodities/` in `AFIB_DATA_DIR` or the local `data/` fallback. They do not connect to Bloomberg or place trades. Roll discontinuities prevent the summary from being treated as tradable futures P&L.
 
 ## Research workflow (Russell liquidity)
 

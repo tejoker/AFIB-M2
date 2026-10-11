@@ -5,15 +5,18 @@ For each contract (Bloomberg generic front month) reports:
   - daily history depth
   - intraday bar history depth
   - live streaming: real-time or delayed
-Results are printed and saved to data/cme_access.csv.
+Results are printed and saved to cme_access.csv in the data folder (see data_root.py).
 """
-import os
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import blpapi
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root
+from data_root import DATA
 
 CONTRACTS = {
     # Equity index
@@ -142,7 +145,7 @@ def main():
 
     df = pd.DataFrame.from_dict(rows, orient="index")
     df.index.name = "ticker"
-    out = Path(os.environ.get("BBG_DATA_DIR", Path(__file__).resolve().parents[1] / "data")) / "cme_access.csv"
+    out = DATA / "cme_access.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out)
     cols = ["contract", "FUT_CUR_GEN_TICKER", "PX_LAST", "OPEN_INT", "FUT_TICK_VAL", "FUT_INIT_SPEC_ML",

@@ -1,10 +1,16 @@
 """Verify financial units, calendar gaps, splits and membership observation timing."""
 import sys
+import types
 import unittest
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+try:
+    import blpapi  # noqa: F401
+except ImportError:  # the functions tested here never call Bloomberg, so the package itself is optional
+    sys.modules["blpapi"] = types.ModuleType("blpapi")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research" / "russell_liquidity"))
 from collect_russell_research import monthly_features, merge_membership
