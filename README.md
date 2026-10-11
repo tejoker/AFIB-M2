@@ -8,10 +8,10 @@ The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloombe
 
 | Folder | Contents |
 |---|---|
-| `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
+| `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (individual futures contract histories), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
 | `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`) and regression data checks |
 | `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
-| `cme_challenge/` | CME commodity proxy downloads and descriptive seasonality research; no Bloomberg login needed |
+| `cme_challenge/` | CME challenge research: Yahoo commodity proxies and seasonality, roll-correct futures series and strategy research (seasonal windows, trend, carry); no Bloomberg login needed |
 | `cqg/` | CQG Web API connectivity tests and the credentials template |
 | `tests/` | Offline tests; no Bloomberg or CQG access needed |
 | `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
@@ -70,6 +70,22 @@ python cme_challenge/summarize_seasonality.py
 ```
 
 These commands save Yahoo continuous front-month commodity proxies and a descriptive calendar-month summary under `commodities/` in `AFIB_DATA_DIR` or the local `data/` fallback. They do not connect to Bloomberg or place trades. Roll discontinuities prevent the summary from being treated as tradable futures P&L.
+
+## Futures strategy research (contract-level)
+
+Yahoo's continuous series jump whenever the front contract changes, which fakes seasonal signals (October lean hogs is one). These scripts work from individual contracts instead. Only the first needs a Bloomberg Terminal; it saves to `futures/` in the data folder and resumes after a stop or a Bloomberg limit (exit code 3).
+
+```powershell
+python bloomberg/futures_contracts.py --roots LC --max-requests 20   # first try on the Terminal: live cattle
+python bloomberg/futures_contracts.py --status                       # progress and requests left, no API use
+python bloomberg/futures_contracts.py                                # all roots, live cattle first
+python cme_challenge/continuous.py                                   # roll-correct return series
+python cme_challenge/futures_research.py window --start 10-09 --end 10-30 --detail LC
+python cme_challenge/futures_research.py backtest --horizon 15       # trend and carry portfolios
+python cme_challenge/futures_research.py signals --risk 5000         # current signals and position sizes
+```
+
+Returns are within-contract price changes before commissions. They describe history and are not trade recommendations.
 
 ## Research workflow (Russell liquidity)
 
