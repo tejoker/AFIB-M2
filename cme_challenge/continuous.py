@@ -1,9 +1,12 @@
 """Chain individual futures contracts into roll-correct daily return series.
 
-Input: <data>/futures/contracts.parquet and history/ written by bloomberg/futures_contracts.py.
+Input: contract details and daily histories from bloomberg/futures_contracts.py (<data>/futures/) or
+cme_challenge/databento_contracts.py (<data>/futures/databento/); by default Databento is used for the markets
+it has and Bloomberg for the others.
 
-The series holds the nearest liquid contract and switches to the next one --roll-days business days before the
-earlier of its first notice day and last trade date, i.e. before delivery can be assigned and liquidity leaves.
+The series holds the nearest liquid contract and switches to the next one on the day the next contract's volume
+took over when that is known (Databento), else --roll-days business days before the earlier of its first notice
+day and last trade date, i.e. before delivery can be assigned and liquidity leaves.
 Every daily return is the held contract's own price change, so the price gap between two contracts, which
 Yahoo's continuous series book as a return, never appears. Carry is the annualised log price gap to the next
 contract: positive in backwardation, where holding the front contract and rolling it earns the gap.
@@ -27,6 +30,8 @@ from data_root import DATA
 
 FUT = DATA / "futures"
 OUT = FUT / "continuous"
+SOURCES = {"bloomberg": (FUT / "contracts.parquet", FUT / "history"),
+           "databento": (FUT / "databento" / "contracts.parquet", FUT / "databento" / "history")}
 
 
 def roll_dates(contracts, roll_days):
@@ -35,7 +40,10 @@ def roll_dates(contracts, roll_days):
     if "FUT_NOTICE_FIRST" in contracts:
         last = pd.concat([last, contracts["FUT_NOTICE_FIRST"]], axis=1).min(axis=1)
     days = np.busday_offset(last.to_numpy().astype("datetime64[D]"), -roll_days, roll="backward")
-    return pd.Series(pd.to_datetime(days), index=contracts.index)
+    rule = pd.Series(pd.to_datetime(days), index=contracts.index)
+    if "ROLL_DT" in contracts:  # the day traders actually moved to the next contract, where known
+        return pd.to_datetime(contracts["ROLL_DT"]).fillna(rule)
+    return rule
 
 
 def build(contracts, prices, roll_days=5):
@@ -82,18 +90,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--roots", nargs="+", help="roots to build (default: every collected root)")
     ap.add_argument("--roll-days", type=int, default=5, help="business days before first notice / last trade")
+    ap.add_argument("--source", choices=["auto", "bloomberg", "databento"], default="auto",
+                    help="auto: Databento for the markets it has, Bloomberg for the rest")
     args = ap.parse_args()
-    if not (FUT / "contracts.parquet").exists():
-        ap.error(f"No {FUT / 'contracts.parquet'}; run bloomberg/futures_contracts.py on a Bloomberg PC first")
-    contracts = pd.read_parquet(FUT / "contracts.parquet")
+    tables = {name: pd.read_parquet(path) for name, (path, _) in SOURCES.items()
+              if path.exists() and args.source in ("auto", name)}
+    if not tables:
+        ap.error("No contract details yet; run cme_challenge/databento_contracts.py or bloomberg/futures_contracts.py")
+    chosen = {}  # root -> source; Databento comes last so it wins
+    for name in ("bloomberg", "databento"):
+        if name in tables:
+            chosen.update({root: name for root in tables[name]["root"].unique()})
     wanted = {r.strip().upper() for r in args.roots} if args.roots else None
     OUT.mkdir(parents=True, exist_ok=True)
     coverage = []
-    for root, rc in contracts.groupby("root"):
+    for root, source in sorted(chosen.items()):
         name = root.strip()
         if wanted and name not in wanted:
             continue
-        prices = load_root(FUT / "history" / name)
+        rc = tables[source][tables[source]["root"] == root]
+        prices = load_root(SOURCES[source][1] / name)
         if prices.empty:
             continue
         series = build(rc, prices, args.roll_days)
@@ -101,7 +117,7 @@ def main():
             continue
         series.to_parquet(OUT / f"{name}.parquet")
         coverage.append({
-            "root": name, "name": rc["name"].iloc[0], "sector": rc["sector"].iloc[0],
+            "root": name, "name": rc["name"].iloc[0], "sector": rc["sector"].iloc[0], "source": source,
             "first": series.index[0].date(), "last": series.index[-1].date(), "days": len(series),
             "missing_return_days": int(series["ret"].isna().sum()) - 1,
             "contracts_used": series["contract"].nunique(), "contracts_with_data": prices.shape[1],

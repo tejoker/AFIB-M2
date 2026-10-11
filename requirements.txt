@@ -9,3 +9,4 @@ matplotlib==3.11.2
 protobuf==7.36.2
 websockets==17.2
 yfinance==1.7.0
+databento==0.87.0

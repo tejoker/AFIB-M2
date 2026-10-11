@@ -8,10 +8,10 @@ The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloombe
 
 | Folder | Contents |
 |---|---|
-| `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (individual futures contract histories), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
+| `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (futures contract histories from Bloomberg), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
 | `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`) and regression data checks |
 | `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
-| `cme_challenge/` | CME challenge research: Yahoo commodity proxies and seasonality, roll-correct futures series and strategy research (seasonal windows, trend, carry); no Bloomberg login needed |
+| `cme_challenge/` | CME challenge research: contract histories from Databento, roll-correct series, strategy research (seasonal windows, trend, carry), the model and the trading desk dashboard; no Bloomberg login needed |
 | `cqg/` | CQG Web API connectivity tests and the credentials template |
 | `tests/` | Offline tests; no Bloomberg or CQG access needed |
 | `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
@@ -73,16 +73,31 @@ These commands save Yahoo continuous front-month commodity proxies and a descrip
 
 ## Futures strategy research (contract-level)
 
-Yahoo's continuous series jump whenever the front contract changes, which fakes seasonal signals (October lean hogs is one). These scripts work from individual contracts instead. Only the first needs a Bloomberg Terminal; it saves to `futures/` in the data folder and resumes after a stop or a Bloomberg limit (exit code 3).
+Yahoo's continuous series jump whenever the front contract changes, which fakes seasonal signals (October lean hogs is one). These scripts work from individual contracts instead, saved under `futures/` in the data folder.
+
+Commodity contract history comes from [Databento](https://databento.com/) (CME Globex since June 2010, expired contracts included; new accounts get free credit). One teammate creates an account and stores the API key:
 
 ```powershell
-python bloomberg/futures_contracts.py --roots LC --max-requests 20   # first try on the Terminal: live cattle
+[Environment]::SetEnvironmentVariable("DATABENTO_API_KEY", "db-...", "User")   # once; reopen the terminal
+python cme_challenge/databento_contracts.py --estimate    # Databento's price for the download; nothing fetched
+python cme_challenge/databento_contracts.py               # all commodities; stops above $25 unless --yes
+```
+
+Later runs add only the new days. Financial futures can come from Databento too (`--sectors all`) or from Bloomberg, on a PC with the Terminal (resumable; exit code 3 at a Bloomberg limit):
+
+```powershell
+python bloomberg/futures_contracts.py --tiers 3                      # equity index, rates and FX
 python bloomberg/futures_contracts.py --status                       # progress and requests left, no API use
-python bloomberg/futures_contracts.py                                # all roots, live cattle first
-python cme_challenge/continuous.py                                   # roll-correct return series
+```
+
+Then, on any PC:
+
+```powershell
+python cme_challenge/continuous.py                                   # roll-correct series (Databento where available)
 python cme_challenge/futures_research.py window --start 10-09 --end 10-30 --detail LC
 python cme_challenge/futures_research.py backtest --horizon 15       # trend and carry portfolios
 python cme_challenge/futures_research.py signals --risk 5000         # current signals and position sizes
+python cme_challenge/model.py                                        # walk-forward model for the dashboard
 ```
 
 Returns are within-contract price changes before commissions. They describe history and are not trade recommendations.
@@ -92,7 +107,7 @@ Returns are within-contract price changes before commissions. They describe hist
 ```powershell
 python cme_challenge/refresh.py --watch 15      # refresh every 15 minutes during trading; Ctrl+C to stop
 python cme_challenge/refresh.py                 # refresh once and open the dashboard
-python cme_challenge/refresh.py --bloomberg     # on a Bloomberg PC: also update contract histories and the model
+python cme_challenge/refresh.py --databento     # also add the latest Databento history and retrain the model
 ```
 
 Each refresh:
@@ -101,7 +116,7 @@ Each refresh:
 - fetches the US heating-demand outlook from ECMWF's AI model (AIFS), ECMWF IFS and NOAA GFS through [Open-Meteo](https://open-meteo.com/), which is free for non-commercial use;
 - writes `futures/dashboard.html` in the data folder.
 
-With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the Bloomberg contract history has been collected (previous section). The first refresh also downloads ten years of weather normals (about four minutes, once). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
+With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the contract history has been collected (previous section). The first refresh also downloads ten years of weather normals (about four minutes, once). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
 
 ## Research workflow (Russell liquidity)
 

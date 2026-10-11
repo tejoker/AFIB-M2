@@ -47,11 +47,12 @@ def load_series(roots=None):
 
 
 def root_info():
-    path = FUT / "contracts.parquet"
-    if not path.exists():
+    paths = [p for p in (FUT / "contracts.parquet", FUT / "databento" / "contracts.parquet") if p.exists()]
+    if not paths:
         return pd.DataFrame(columns=["name", "sector", "point_value"])
-    c = pd.read_parquet(path)
-    c = c.assign(root=c["root"].str.strip()).sort_values("LAST_TRADEABLE_DT")
+    c = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)  # Databento last: it wins below
+    databento = c["source"].eq("databento") if "source" in c else False
+    c = c.assign(root=c["root"].str.strip(), _databento=databento).sort_values(["_databento", "LAST_TRADEABLE_DT"])
     last = c.groupby("root").last()
     return pd.DataFrame({"name": last["name"], "sector": last["sector"],
                          "point_value": last.get("FUT_VAL_PT", pd.Series(np.nan, index=last.index))})

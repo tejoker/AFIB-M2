@@ -1,7 +1,8 @@
 """One command before trading: refresh every input and rebuild the dashboard.
 
 Steps (each one that cannot run on this machine is skipped, and the dashboard says so):
-  1. --bloomberg, on a PC with a logged-in Terminal: update contract histories and the roll-correct series
+  1. --databento (any PC with the API key) or --bloomberg (PC with a logged-in Terminal): update contract
+     histories and the roll-correct series
   2. retrain the model when the series are newer than it
   3. latest prices and signals for every market from Yahoo (cme_challenge/live.py)
   4. US heating-demand outlook from three weather models (cme_challenge/weather.py)
@@ -10,6 +11,7 @@ Steps (each one that cannot run on this machine is skipped, and the dashboard sa
 Usage (from the repository root):
     python cme_challenge/refresh.py                  # once, then open the dashboard
     python cme_challenge/refresh.py --watch 15       # every 15 minutes until Ctrl+C
+    python cme_challenge/refresh.py --databento      # also add the latest days of Databento contract history
     python cme_challenge/refresh.py --bloomberg      # on a Bloomberg PC: also update contract histories
 """
 import argparse
@@ -43,10 +45,14 @@ def run_script(path, *args):
     return out.returncode, (out.stdout + out.stderr).strip().splitlines()[-1:] or [""]
 
 
-def update_bloomberg(notes):
-    code, last = run_script("bloomberg/futures_contracts.py")
-    notes.append(f"Bloomberg contracts: {'updated' if code == 0 else f'stopped (exit {code}): {last[0]}'}")
-    if (FUT / "contracts.parquet").exists():
+def update_history(notes, databento, bloomberg):
+    if databento:
+        code, last = run_script("cme_challenge/databento_contracts.py")
+        notes.append(f"Databento contracts: {'updated' if code == 0 else f'stopped (exit {code}): {last[0]}'}")
+    if bloomberg:
+        code, last = run_script("bloomberg/futures_contracts.py")
+        notes.append(f"Bloomberg contracts: {'updated' if code == 0 else f'stopped (exit {code}): {last[0]}'}")
+    if (FUT / "contracts.parquet").exists() or (FUT / "databento" / "contracts.parquet").exists():
         code, last = run_script("cme_challenge/continuous.py")
         notes.append(f"Roll-correct series: {'rebuilt' if code == 0 else last[0]}")
 
@@ -55,7 +61,7 @@ def update_model(notes):
     series = list((FUT / "continuous").glob("*.parquet"))
     model = FUT / "model" / "model.json"
     if not series:
-        notes.append("Model: needs the Bloomberg contract history (run bloomberg/futures_contracts.py once)")
+        notes.append("Model: needs contract history (cme_challenge/databento_contracts.py, or Bloomberg)")
         return
     if model.exists() and model.stat().st_mtime >= max(p.stat().st_mtime for p in series):
         return
@@ -145,8 +151,8 @@ def weather_block(outlook, errors):
 
 def model_block(model):
     if not model:
-        return ("<p class=muted>Not trained yet: it needs the Bloomberg contract history "
-                "(bloomberg/futures_contracts.py, then cme_challenge/continuous.py and model.py).</p>")
+        return ("<p class=muted>Not trained yet: it needs contract history (cme_challenge/databento_contracts.py "
+                "or bloomberg/futures_contracts.py, then cme_challenge/continuous.py and model.py).</p>")
     oos = model["out_of_sample"]
     rows = "".join(f"<tr><td>{html.escape(k)}</td><td class=num>{num(100 * v['hit_rate'], 0)}%</td>"
                    f"<td class=num>{num(v['sharpe'])}</td><td class=num>{num(v['sharpe_last_5y'])}</td></tr>"
@@ -210,8 +216,8 @@ and model.</p></div>
 
 def refresh_once(args, first):
     notes = []
-    if args.bloomberg and first:
-        update_bloomberg(notes)
+    if (args.databento or args.bloomberg) and first:
+        update_history(notes, args.databento, args.bloomberg)
     update_model(notes)
     table, model = live.refresh(args.risk)
     try:
@@ -229,6 +235,7 @@ def refresh_once(args, first):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--watch", type=float, help="minutes between refreshes (runs until Ctrl+C)")
+    ap.add_argument("--databento", action="store_true", help="also add the latest Databento contract history")
     ap.add_argument("--bloomberg", action="store_true", help="also update contract histories (Bloomberg PC)")
     ap.add_argument("--risk", type=float, default=5000, help="daily volatility in USD per position, for sizing")
     ap.add_argument("--no-browser", action="store_true", help="do not open the dashboard")
