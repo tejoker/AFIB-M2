@@ -103,9 +103,10 @@ def ideas_rows(table):
     rows = []
     for _, r in agree.sort_values("strength", ascending=False).head(MAX_IDEAS).iterrows():
         side = "LONG" if r["votes"] > 0 else "SHORT"
-        size = f"{num(r['contracts_for_risk'], 1)} contracts"
+        x = r["size_x"]
+        size = f"{num(r['contracts_for_risk'] * x, 1)} contracts ({x:g}x)"
         if text(r["micro"]) and np.isfinite(r["micros_for_risk"]):
-            size += f" or {num(r['micros_for_risk'], 0)} {text(r['micro'])}"
+            size += f" or {num(r['micros_for_risk'] * x, 0)} {text(r['micro'])}"
         rows.append(f"<tr><td><b>{html.escape(r['name'])}</b></td><td>{html.escape(r['contract'])}</td>"
                     f'<td class="{"up" if side == "LONG" else "down"}"><b>{side}</b></td>'
                     f"<td>{arrow(r['trend'])} trend {arrow(r['carry_pct_yr'])} carry {arrow(r['seasonal'])} season "
@@ -120,14 +121,14 @@ def market_rows(table):
         rows.append(f'<tr class="sector"><td colspan="15">{html.escape(sector)}</td></tr>')
         for _, r in group.iterrows():
             trends = "".join(arrow(r[c]) for c in ["trend_21d", "trend_63d", "trend_126d", "trend_252d"])
-            micro = f"{num(r['micros_for_risk'], 0)} {text(r['micro'])}" if text(r["micro"]) else ""
+            micro = f"{num(r['micros_for_risk'] * r['size_x'], 0)} {text(r['micro'])}" if text(r["micro"]) else ""
             note = text(r.get("note"))
             rows.append(
                 f"<tr><td><b>{html.escape(r['root'])}</b> {html.escape(r['name'])}</td><td>{html.escape(r['contract'])}</td>"
                 f"<td class=num>{num(r['last'], 4 if r['last'] < 10 else 2)}</td>{signed_cell(r['change_pct'])}"
                 f"<td class=trend>{trends}</td>{signed_cell(r['carry_pct_yr'], 1)}{signed_cell(r['seasonal'])}"
                 f"{signed_cell(r['model_view'])}{signed_cell(float(r['votes']), 0)}<td class=num>{num(r['vol_pct_yr'], 0)}</td>"
-                f"<td class=num>{num(r['daily_vol_usd'], 0)}</td><td class=num>{num(r['contracts_for_risk'], 1)}</td>"
+                f"<td class=num>{num(r['daily_vol_usd'], 0)}</td><td class=num>{num(r['contracts_for_risk'] * r['size_x'], 1)} <span class=muted>({r['size_x']:g}x)</span></td>"
                 f"<td class=num>{micro}</td><td>{text(r['expiry'])}</td><td class=note>{note}</td></tr>")
     return "".join(rows)
 
@@ -164,9 +165,22 @@ def model_block(model):
             "<th>Sharpe</th><th>Sharpe, last 5 years</th></tr></thead><tbody>" + rows + "</tbody></table>")
 
 
+def next_fed_decision(now):
+    """Reminder line for the next scheduled FOMC decision (dates from event_strategies.py)."""
+    import event_strategies as ev
+    dates = [ev.last_day(y, t) for y, meetings in ev.RECENT_MEETINGS.items() for t in meetings]
+    upcoming = [d for d in dates if d.date() >= now.date()]
+    if not upcoming:
+        return ""
+    d = min(upcoming)
+    return (f" Next Fed decision: <b>{d:%a %d %b}</b>, 1 pm CT (since 2000 the dollar has tended to weaken and bonds "
+            "to firm on the day; the equity drift has faded; see event_strategies.py).")
+
+
 def render(table, model, outlook, weather_errors, notes, watch, risk):
     now = pd.Timestamp.now(tz=CT)
     days_left = int(np.busday_count(now.date(), (CHALLENGE_END + pd.Timedelta(days=1)).date()))
+    fed = next_fed_decision(now)
     refresh_tag = f'<meta http-equiv="refresh" content="{int(watch * 60)}">' if watch else ""
     freshest = max(table["as_of"]) if len(table) else None
     notes_html = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
@@ -194,7 +208,7 @@ tr.sector td {{ font-weight:600; color:var(--accent); padding-top:12px; }}
 <div class="muted">Updated {now:%a %d %b %H:%M} CT · prices from Yahoo (delayed about 10 min; CQG shows the live price),
 latest bar {freshest} · sizes for ${risk:,.0f} of daily volatility per position{f' · reloads every {watch:g} min' if watch else ''}</div>
 <div class="bar"><b>{days_left} trading days left.</b> Be flat before <b>Fri 30 Oct, 16:00 CT</b> (open contracts are
-penalised) and trade at least <b>10 contracts every day</b>.</div>
+penalised) and trade at least <b>10 contracts every day</b>.{fed}</div>
 <div class="card"><h2>Where the signals agree</h2><table><thead><tr><th>Market</th><th>Contract</th><th>Side</th>
 <th>Signals</th><th>Last</th><th>Size</th></tr></thead><tbody>{ideas_rows(table)}</tbody></table>
 <p class=muted>The strongest {MAX_IDEAS} markets where at least two of trend, carry, seasonality and the model point the same
@@ -206,7 +220,9 @@ order: check the chart, the news and upcoming reports before trading.</p></div>
 <th>$ vol/day/contract</th><th>Contracts</th><th>Micros</th><th>Expiry</th><th></th></tr></thead>
 <tbody>{market_rows(table)}</tbody></table>
 <p class=muted>Sizes target equal risk: contracts carrying the chosen daily volatility, from the last 21 days'
-volatility and never more than twice the size the 1-year volatility gives. Adjust an open position only when its
+volatility and never more than twice the size the 1-year volatility gives, times a conviction multiplier: 0.5x when
+signals are mixed, 1x when trend and the model agree, 2x when all four trend lookbacks and the model agree. Keep any
+one market under about a quarter of the account's risk, and cut exposure after a 20-25% loss. Adjust an open position only when its
 suggested size moves by more than 25% (same results, half the trades). Trend: direction of the traded contract's own price over 1, 3, 6 and 12 months. Carry: annualised gap to the
 next contract (positive = backwardation, holding earns it). Season: average move over the next 15 trading days in past
 years, from the roll-correct Bloomberg series (units of a normal move). Votes: sum of the signs of trend, carry, season

@@ -130,6 +130,7 @@ def market_row(root, market, contracts, frames, expiry, today, model, risk):
     trends = [inputs[f"trend_{lb}d"] for lb in LOOKBACKS if np.isfinite(inputs[f"trend_{lb}d"])]
     trend = float(np.mean(trends)) if trends else np.nan
     votes = int(sum(np.sign(v) for v in (trend, carry, seasonal, view) if np.isfinite(v)))
+    size_x = conviction(trend, view)
     last, previous = close.iloc[-1], close.iloc[-2] if len(close) > 1 else np.nan
     vol = sizing_vol(close.pct_change())
     notional = last * market.point_value
@@ -141,12 +142,26 @@ def market_row(root, market, contracts, frames, expiry, today, model, risk):
         "change_pct": 100 * (last / previous - 1), **{k: inputs[k] for k in inputs if k.startswith("trend_")},
         "trend": trend, "carry_pct_yr": 100 * carry, "seasonal": seasonal, "model_view": view, "votes": votes,
         "vol_pct_yr": 100 * vol * np.sqrt(252), "notional_usd": notional, "daily_vol_usd": usd_vol,
-        "contracts_for_risk": risk / usd_vol if usd_vol > 0 else np.nan,
+        "contracts_for_risk": risk / usd_vol if usd_vol > 0 else np.nan, "size_x": size_x,
         "micro": market.micro, "micros_for_risk": (risk / (usd_vol * market.micro_point_value / market.point_value)
                                                   if market.micro and usd_vol > 0 else np.nan),
         "expiry": exp, "volume_5d": frames[trade[0]]["Volume"].iloc[-5:].mean(),
         "note": note(len(close), exp, today),
     }
+
+
+def conviction(trend, view):
+    """Size multiplier on the equal-risk base: 0.5 when signals are mixed, 1 when trend and the model agree,
+    2 when all four trend lookbacks and the model agree (without a model: 1 when the four lookbacks agree).
+    In the backtest, full trend agreement won 51.6% of 15-day periods against 48.8% for partial agreement;
+    the model's own strength did not help, so it only confirms the direction here."""
+    if not np.isfinite(trend) or trend == 0:
+        return 0.5
+    if not np.isfinite(view):
+        return 1.0 if abs(trend) == 1 else 0.5
+    if np.sign(view) != np.sign(trend):
+        return 0.5
+    return 2.0 if abs(trend) == 1 else 1.0
 
 
 def sizing_vol(ret, lookback=SIZING_DAYS, cap=SIZING_CAP):

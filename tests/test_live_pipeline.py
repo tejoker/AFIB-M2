@@ -82,6 +82,15 @@ class Sizing(unittest.TestCase):
         self.assertEqual(w.dropna().nunique(), 1)  # a 5% change in volatility does not trigger a trade
 
 
+class Conviction(unittest.TestCase):
+    def test_multiplier_follows_agreement(self):
+        self.assertEqual(live.conviction(1.0, 0.2), 2.0)     # all four lookbacks and the model agree
+        self.assertEqual(live.conviction(0.5, 0.2), 1.0)     # trend and model agree
+        self.assertEqual(live.conviction(1.0, -0.1), 0.5)    # model disagrees
+        self.assertEqual(live.conviction(0.0, 0.3), 0.5)     # no trend
+        self.assertEqual(live.conviction(-1.0, np.nan), 1.0)  # no model yet: full trend agreement only
+
+
 class Weather(unittest.TestCase):
     def test_outlook_against_normal_and_previous_run(self):
         days = pd.date_range("2026-10-12", periods=15)
