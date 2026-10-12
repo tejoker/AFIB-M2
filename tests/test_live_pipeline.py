@@ -67,6 +67,21 @@ class Live(unittest.TestCase):
         self.assertEqual(row["votes"], 1)  # trend up, carry down, model up
 
 
+class Sizing(unittest.TestCase):
+    def test_calm_spell_cannot_more_than_double_size(self):
+        rng = np.random.default_rng(5)
+        ret = pd.Series(np.r_[rng.normal(0, 0.02, 300), rng.normal(0, 0.002, 21)])  # suddenly very calm
+        self.assertAlmostEqual(live.sizing_vol(ret), ret.iloc[-252:].std() / 2)
+        noisy = pd.Series(np.r_[rng.normal(0, 0.01, 300), rng.normal(0, 0.03, 21)])  # suddenly wild: follow it
+        self.assertAlmostEqual(live.sizing_vol(noisy), noisy.iloc[-21:].std())
+
+    def test_band_keeps_size_until_target_moves(self):
+        import futures_research as fr
+        ret = pd.Series(np.r_[np.full(30, 0.01) * np.tile([1, -1], 15), np.full(30, 0.0105) * np.tile([1, -1], 15)])
+        w = fr.sized_weights(ret, 21, band=0.25)
+        self.assertEqual(w.dropna().nunique(), 1)  # a 5% change in volatility does not trigger a trade
+
+
 class Weather(unittest.TestCase):
     def test_outlook_against_normal_and_previous_run(self):
         days = pd.date_range("2026-10-12", periods=15)

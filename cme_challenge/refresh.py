@@ -205,7 +205,9 @@ order: check the chart, the news and upcoming reports before trading.</p></div>
 <th>Trend 1·3·6·12m</th><th>Carry %/yr</th><th>Season</th><th>Model</th><th>Votes</th><th>Vol %/yr</th>
 <th>$ vol/day/contract</th><th>Contracts</th><th>Micros</th><th>Expiry</th><th></th></tr></thead>
 <tbody>{market_rows(table)}</tbody></table>
-<p class=muted>Trend: direction of the traded contract's own price over 1, 3, 6 and 12 months. Carry: annualised gap to the
+<p class=muted>Sizes target equal risk: contracts carrying the chosen daily volatility, from the last 21 days'
+volatility and never more than twice the size the 1-year volatility gives. Adjust an open position only when its
+suggested size moves by more than 25% (same results, half the trades). Trend: direction of the traded contract's own price over 1, 3, 6 and 12 months. Carry: annualised gap to the
 next contract (positive = backwardation, holding earns it). Season: average move over the next 15 trading days in past
 years, from the roll-correct Bloomberg series (units of a normal move). Votes: sum of the signs of trend, carry, season
 and model.</p></div>

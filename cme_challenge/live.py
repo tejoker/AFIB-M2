@@ -31,6 +31,7 @@ SERIES = DATA / "futures" / "continuous"
 MODEL = DATA / "futures" / "model" / "model.json"
 MONTH_CODES = "FGHJKMNQUVXZ"
 MIN_DAYS_TO_EXPIRY = 5
+SIZING_DAYS, SIZING_CAP = 21, 2.0  # volatility targeting as benchmarked: 21-day volatility, at most 2x normal size
 
 
 def listed_contracts(market, today, months_ahead=15):
@@ -130,7 +131,7 @@ def market_row(root, market, contracts, frames, expiry, today, model, risk):
     trend = float(np.mean(trends)) if trends else np.nan
     votes = int(sum(np.sign(v) for v in (trend, carry, seasonal, view) if np.isfinite(v)))
     last, previous = close.iloc[-1], close.iloc[-2] if len(close) > 1 else np.nan
-    vol = close.pct_change().iloc[-VOL_DAYS:].std()
+    vol = sizing_vol(close.pct_change())
     notional = last * market.point_value
     usd_vol = notional * vol
     exp = expiry.get(trade[0])
@@ -146,6 +147,14 @@ def market_row(root, market, contracts, frames, expiry, today, model, risk):
         "expiry": exp, "volume_5d": frames[trade[0]]["Volume"].iloc[-5:].mean(),
         "note": note(len(close), exp, today),
     }
+
+
+def sizing_vol(ret, lookback=SIZING_DAYS, cap=SIZING_CAP):
+    """Daily volatility used for sizing: the last `lookback` days, but never below 1/cap of the 1-year figure,
+    so a calm spell cannot push a position above cap times its normal size (futures_research.py sizing)."""
+    recent = ret.iloc[-lookback:].std()
+    year = ret.iloc[-252:].std() if ret.count() >= 126 else np.nan
+    return max(recent, year / cap) if np.isfinite(year) else recent
 
 
 def note(days_of_history, expiry, today):

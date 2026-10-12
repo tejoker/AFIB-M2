@@ -16,7 +16,7 @@ The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloombe
 | `tests/` | Offline tests; no Bloomberg or CQG access needed |
 | `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
 | `vendor/cqg_proto/` | CQG's generated protocol modules, under the terms in `vendor/cqg_proto/LICENSE.md` |
-| `docs/` | Setup guide and its generator |
+| `docs/` | Setup guide and its generator, [OneDrive setup](docs/OneDrive_Setup.md), [CME data guide](docs/CME_Data_Guide.md) (what to fetch from Databento and what it costs) |
 
 Run every script from the repository root, e.g. `python bloomberg/bbg_collect.py --status`.
 
@@ -75,10 +75,10 @@ These commands save Yahoo continuous front-month commodity proxies and a descrip
 
 Yahoo's continuous series jump whenever the front contract changes, which fakes seasonal signals (October lean hogs is one). These scripts work from individual contracts instead, saved under `futures/` in the data folder.
 
-Commodity contract history comes from [Databento](https://databento.com/) (CME Globex since June 2010, expired contracts included; new accounts get free credit). One teammate creates an account and stores the API key:
+What to fetch and the rules for the credit are in [docs/CME_Data_Guide.md](docs/CME_Data_Guide.md). Commodity contract history comes from [Databento](https://databento.com/) (CME Globex since June 2010, expired contracts included; new accounts get free credit). One teammate creates an account, copies `cme_challenge/.env.example` to `cme_challenge/.env` and pastes the API key there (`.env` is never committed):
 
 ```powershell
-[Environment]::SetEnvironmentVariable("DATABENTO_API_KEY", "db-...", "User")   # once; reopen the terminal
+Copy-Item cme_challenge\.env.example cme_challenge\.env                       # then edit the key in
 python cme_challenge/databento_contracts.py --estimate    # Databento's price for the download; nothing fetched
 python cme_challenge/databento_contracts.py               # all commodities; stops above $25 unless --yes
 ```
@@ -97,6 +97,7 @@ python cme_challenge/continuous.py                                   # roll-corr
 python cme_challenge/futures_research.py window --start 10-09 --end 10-30 --detail LC
 python cme_challenge/futures_research.py backtest --horizon 15       # trend and carry portfolios
 python cme_challenge/futures_research.py signals --risk 5000         # current signals and position sizes
+python cme_challenge/futures_research.py sizing                       # constant size vs volatility targeting
 python cme_challenge/model.py                                        # walk-forward model for the dashboard
 ```
 

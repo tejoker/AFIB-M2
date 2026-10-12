@@ -9,6 +9,7 @@ Usage (from the repository root, no Bloomberg needed):
     python cme_challenge/futures_research.py window --start 10-09 --end 10-30 --detail LC
     python cme_challenge/futures_research.py backtest --horizon 15                     # trend and carry
     python cme_challenge/futures_research.py signals --risk 5000                       # today's signals and sizes
+    python cme_challenge/futures_research.py sizing                                    # constant vs vol-targeted
 
 window   Return over the same calendar window each year. The placebo p-value compares the window's t-statistic
          with same-length windows starting on every other date of the year, so a root that simply trends all
@@ -17,6 +18,10 @@ backtest Equal-risk portfolios rebalanced every --horizon trading days: time-ser
          lookbacks, carry (sign, and long top third / short bottom third), and trend plus carry.
 signals  Latest trend and carry per root, volatility, contract value and the number of contracts that carry
          --risk dollars of daily volatility.
+sizing   Constant size against volatility targeting (size inverse to recent volatility, rebalanced daily from
+         the previous day's estimate) for long positions by sector, 12-month trend and combined trend. Every
+         rule is scaled to the same average risk, so the Sharpe ratio, drawdown and worst 15 days compare like
+         with like; turnover is the average daily change in size relative to the average size.
 
 Outputs are saved under <data>/futures/research/.
 """
@@ -29,6 +34,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root
 from data_root import DATA
+from futures_markets import MARKETS
 
 FUT = DATA / "futures"
 SERIES = FUT / "continuous"
@@ -47,15 +53,20 @@ def load_series(roots=None):
 
 
 def root_info():
+    """Name, sector and point value per root: from the contract details, else from futures_markets.py."""
+    table = pd.DataFrame({"name": [m.name for m in MARKETS.values()], "sector": [m.sector for m in MARKETS.values()],
+                          "point_value": [float(m.point_value) for m in MARKETS.values()]},
+                         index=[r.strip() for r in MARKETS])
     paths = [p for p in (FUT / "contracts.parquet", FUT / "databento" / "contracts.parquet") if p.exists()]
     if not paths:
-        return pd.DataFrame(columns=["name", "sector", "point_value"])
+        return table
     c = pd.concat([pd.read_parquet(p) for p in paths], ignore_index=True)  # Databento last: it wins below
     databento = c["source"].eq("databento") if "source" in c else False
     c = c.assign(root=c["root"].str.strip(), _databento=databento).sort_values(["_databento", "LAST_TRADEABLE_DT"])
     last = c.groupby("root").last()
-    return pd.DataFrame({"name": last["name"], "sector": last["sector"],
-                         "point_value": last.get("FUT_VAL_PT", pd.Series(np.nan, index=last.index))})
+    details = pd.DataFrame({"name": last["name"], "sector": last["sector"],
+                            "point_value": last.get("FUT_VAL_PT", pd.Series(np.nan, index=last.index))})
+    return pd.concat([details, table.drop(details.index, errors="ignore")])
 
 
 # --------------------------------------------------------------------------- seasonal windows
@@ -226,6 +237,81 @@ def run_backtest(series, info, horizon, start):
     print(f"\nSaved {RESEARCH / f'backtest_{horizon}d.csv'} and the per-period returns")
 
 
+# --------------------------------------------------------------------------- position sizing
+
+SIZING_RULES = {  # name: (volatility lookback in days or None for constant size, cap, rebalancing band)
+    "constant size": (None, None, 0.0),
+    "vol target, 63 days": (63, None, 0.0),
+    "vol target, 21 days": (21, None, 0.0),
+    "vol target, 21 days, capped, 25% band": (21, 2.0, 0.25),
+}
+
+
+def sized_weights(ret, lookback, cap=None, band=0.0):
+    """Daily size per unit of risk: 1 / yesterday's volatility, at most `cap` times the 1-year-volatility size,
+    changed only when the target moves by more than `band` (fewer trades). None lookback = constant size."""
+    if lookback is None:
+        return pd.Series(1.0, index=ret.index)
+    target = 1 / ret.rolling(lookback, min_periods=max(10, lookback // 2)).std().shift(1)
+    if cap is not None:
+        target = target.clip(upper=cap / ret.rolling(252, min_periods=126).std().shift(1))
+    if band <= 0:
+        return target
+    held, out = np.nan, []
+    for t in target.to_numpy():
+        if np.isfinite(t) and (not np.isfinite(held) or abs(t / held - 1) > band):
+            held = t
+        out.append(held)
+    return pd.Series(out, index=ret.index)
+
+
+def sizing_stats(daily, weights):
+    """Sharpe, drawdown and worst 15 days at 15%/year average risk, plus turnover."""
+    daily = daily.dropna()
+    if daily.empty or daily.std() == 0:
+        return {}
+    scaled = daily * (0.15 / np.sqrt(252)) / daily.std()  # same average risk for every rule
+    equity = (1 + scaled).cumprod()
+    w = weights.reindex(daily.index)
+    return {"sharpe": daily.mean() / daily.std() * np.sqrt(252), "max_drawdown": (equity / equity.cummax() - 1).min(),
+            "worst_15_days": scaled.rolling(15).sum().min(),
+            "turnover": (w.diff().abs().mean() / w.abs().mean()) if w.abs().mean() > 0 else np.nan,
+            "from": daily.index[0].date()}
+
+
+def run_sizing(series, info, start):
+    index, ret, _ = panels(series)
+    ret = ret.loc[start:]
+    index = index.loc[ret.index]
+    trend12 = np.sign(index / index.shift(252) - 1).shift(1)  # known at yesterday's close
+    combo = pd.concat([np.sign(index / index.shift(lb) - 1) for lb in LOOKBACKS]).groupby(level=0).mean().shift(1)
+    strategies = {f"long {s.lower()}": (pd.DataFrame(1.0, index=ret.index, columns=ret.columns),
+                                        [r for r in ret.columns if info["sector"].get(r) == s])
+                  for s in sorted(info["sector"].reindex(ret.columns).dropna().unique())}
+    strategies["12-month trend, all markets"] = (trend12, list(ret.columns))
+    strategies["trend combo, all markets"] = (combo, list(ret.columns))
+    rows = []
+    for name, (signal, roots) in strategies.items():
+        for rule, (lookback, cap, band) in SIZING_RULES.items():
+            legs, weights = [], []
+            for r in roots:
+                x = ret[r].dropna()
+                w = sized_weights(x, lookback, cap, band)
+                if lookback is None:
+                    w = w / x.std()  # constant size, same risk per market as the others on average
+                legs.append(signal[r].reindex(x.index) * w * x)
+                weights.append(w)
+            port = pd.concat(legs, axis=1).mean(axis=1)
+            rows.append({"strategy": name, "sizing": rule, "markets": len(roots),
+                         **sizing_stats(port, pd.concat(weights, axis=1).mean(axis=1))})
+    table = pd.DataFrame(rows)
+    RESEARCH.mkdir(parents=True, exist_ok=True)
+    table.to_csv(RESEARCH / "sizing.csv", index=False)
+    print("Constant size vs volatility targeting, daily, before costs; every rule scaled to 15%/year average risk.\n")
+    print(table.round({"sharpe": 2, "max_drawdown": 3, "worst_15_days": 3, "turnover": 3}).to_string(index=False))
+    print(f"\nSaved {RESEARCH / 'sizing.csv'}")
+
+
 # --------------------------------------------------------------------------- current signals
 
 def run_signals(series, info, risk):
@@ -268,7 +354,9 @@ def main():
     b.add_argument("--start", default="2006-01-01")
     g = sub.add_parser("signals", help="current trend, carry and position sizes")
     g.add_argument("--risk", type=float, default=5000, help="daily volatility in USD per position")
-    for p in (w, b, g):
+    z = sub.add_parser("sizing", help="constant size vs volatility targeting")
+    z.add_argument("--start", default="2006-01-01")
+    for p in (w, b, g, z):
         p.add_argument("--roots", nargs="+")
     args = ap.parse_args()
     series, info = load_series(args.roots), root_info()
@@ -276,6 +364,8 @@ def main():
         run_window(series, info, args.start, args.end, args.min_years, args.detail)
     elif args.command == "backtest":
         run_backtest(series, info, args.horizon, args.start)
+    elif args.command == "sizing":
+        run_sizing(series, info, args.start)
     else:
         run_signals(series, info, args.risk)
 

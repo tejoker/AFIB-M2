@@ -11,6 +11,10 @@ Every daily return is the held contract's own price change, so the price gap bet
 Yahoo's continuous series book as a return, never appears. Carry is the annualised log price gap to the next
 contract: positive in backwardation, where holding the front contract and rolling it earns the gap.
 
+Equity index, rate and FX markets with no contract history fall back to Yahoo's continuous series ("=F"): their
+roll gaps are small, so trend is barely affected, but they have no carry. Commodities never fall back, since
+their roll gaps fake seasonal and trend signals.
+
 Output: <data>/futures/continuous/<root>.parquet (date, contract, price, ret, index, next_contract, next_price,
 carry) and coverage.csv, one row per root.
 
@@ -27,9 +31,11 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root
 from data_root import DATA
+from futures_markets import MARKETS
 
 FUT = DATA / "futures"
 OUT = FUT / "continuous"
+YAHOO_FALLBACK_SECTORS = ("Equity index", "Rates", "FX")  # small roll gaps
 SOURCES = {"bloomberg": (FUT / "contracts.parquet", FUT / "history"),
            "databento": (FUT / "databento" / "contracts.parquet", FUT / "databento" / "history")}
 
@@ -78,11 +84,28 @@ def build(contracts, prices, roll_days=5):
     return out
 
 
+def yahoo_series(market):
+    """Yahoo's continuous front-month series in the same columns as build(); carry unknown."""
+    import yfinance as yf
+    close = yf.Ticker(f"{market.yahoo}=F").history(period="max", auto_adjust=False)["Close"].dropna()
+    if close.empty:
+        return pd.DataFrame()
+    close.index = close.index.tz_localize(None).normalize()
+    out = pd.DataFrame({"contract": f"{market.yahoo}=F", "price": close, "ret": close.pct_change(),
+                        "next_contract": None, "next_price": np.nan, "carry": np.nan}, index=close.index)
+    out.index.name = "date"
+    out["index"] = (1 + out["ret"].fillna(0)).cumprod()
+    return out
+
+
 def load_root(root_dir):
     frames = [pd.read_parquet(p, columns=["ticker", "date", "PX_LAST"]) for p in sorted(root_dir.glob("*.parquet"))]
     if not frames:
         return pd.DataFrame()
     data = pd.concat(frames, ignore_index=True).dropna(subset=["PX_LAST"])
+    # Databento's UTC-day bars give the Sunday-evening session its own row; dropping weekend rows keeps one row per
+    # trading day, and Monday's return still runs from Friday's close
+    data = data[pd.to_datetime(data["date"]).dt.dayofweek < 5]
     return data.pivot_table(index="date", columns="ticker", values="PX_LAST", aggfunc="last").sort_index()
 
 
@@ -92,11 +115,10 @@ def main():
     ap.add_argument("--roll-days", type=int, default=5, help="business days before first notice / last trade")
     ap.add_argument("--source", choices=["auto", "bloomberg", "databento"], default="auto",
                     help="auto: Databento for the markets it has, Bloomberg for the rest")
+    ap.add_argument("--no-yahoo", action="store_true", help="no Yahoo fallback for equity index, rates and FX")
     args = ap.parse_args()
     tables = {name: pd.read_parquet(path) for name, (path, _) in SOURCES.items()
               if path.exists() and args.source in ("auto", name)}
-    if not tables:
-        ap.error("No contract details yet; run cme_challenge/databento_contracts.py or bloomberg/futures_contracts.py")
     chosen = {}  # root -> source; Databento comes last so it wins
     for name in ("bloomberg", "databento"):
         if name in tables:
@@ -122,9 +144,27 @@ def main():
             "missing_return_days": int(series["ret"].isna().sum()) - 1,
             "contracts_used": series["contract"].nunique(), "contracts_with_data": prices.shape[1],
         })
+    if not args.no_yahoo:
+        for root, market in MARKETS.items():
+            name = root.strip()
+            if root in chosen or market.sector not in YAHOO_FALLBACK_SECTORS or (wanted and name not in wanted):
+                continue
+            try:
+                series = yahoo_series(market)
+            except Exception as e:  # Yahoo hiccup: skip the market this time
+                print(f"Yahoo fallback failed for {name}: {e}", file=sys.stderr)
+                continue
+            if len(series) < 300:  # Yahoo keeps almost no history for some (3M SOFR)
+                continue
+            series.to_parquet(OUT / f"{name}.parquet")
+            coverage.append({"root": name, "name": market.name, "sector": market.sector,
+                             "source": "yahoo continuous (roll gaps kept, no carry)", "first": series.index[0].date(),
+                             "last": series.index[-1].date(), "days": len(series),
+                             "missing_return_days": int(series["ret"].isna().sum()) - 1, "contracts_used": 1,
+                             "contracts_with_data": 0})
     table = pd.DataFrame(coverage)
     if table.empty:
-        ap.error("No contract histories found; run bloomberg/futures_contracts.py first")
+        ap.error("No series built; run cme_challenge/databento_contracts.py or bloomberg/futures_contracts.py first")
     table.to_csv(OUT / "coverage.csv", index=False)
     print(table.to_string(index=False))
     print(f"\nSaved {len(table)} roll-correct series to {OUT}")
