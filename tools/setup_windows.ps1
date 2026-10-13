@@ -44,16 +44,22 @@ if (Test-Path (Join-Path $Repo ".git")) {
     Invoke-Checked git @("-C", $Repo, "pull")
 } elseif (Get-Command git -ErrorAction SilentlyContinue) {
     Invoke-Checked git @("clone", "https://github.com/tejoker/AFIB-M2.git", $Repo)
-} elseif (-not (Test-Path $Repo)) {
-    $zip = Join-Path $env:TEMP "AFIB-M2.zip"  # no git on this PC: a copy of the code (update it the same way)
+} else {
+    # No git on this PC: download the code; on a rerun, copy it over the old code (.venv and data are kept)
+    $zip = Join-Path $env:TEMP "AFIB-M2.zip"
     Invoke-WebRequest "https://github.com/tejoker/AFIB-M2/archive/refs/heads/main.zip" -OutFile $zip
     $unpacked = Join-Path $env:TEMP "AFIB-M2-main"
     if (Test-Path $unpacked) { Remove-Item $unpacked -Recurse -Force }
     Expand-Archive $zip -DestinationPath $env:TEMP -Force
-    New-Item -ItemType Directory -Force -Path (Split-Path $Repo) | Out-Null
-    Move-Item $unpacked $Repo
-} else {
-    Write-Host "$Repo exists without git; keeping it as it is"
+    if (Test-Path $Repo) {
+        robocopy $unpacked $Repo /E /NFL /NDL /NJH /NJS /NP | Out-Null  # merges folders; codes below 8 = success
+        if ($LASTEXITCODE -ge 8) { throw "Copying the new code failed (robocopy $LASTEXITCODE)" }
+        $global:LASTEXITCODE = 0
+        Write-Host "Code updated"
+    } else {
+        New-Item -ItemType Directory -Force -Path (Split-Path $Repo) | Out-Null
+        Move-Item $unpacked $Repo
+    }
 }
 Set-Location $Repo
 
