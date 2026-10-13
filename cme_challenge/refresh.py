@@ -136,18 +136,23 @@ def market_rows(table):
 def weather_block(outlook, errors):
     if outlook is None:
         return f"<p class=muted>Weather unavailable: {html.escape('; '.join(errors))}</p>"
+    if "tdd_days_1_7" not in outlook:  # saved before cooling demand was added
+        return "<p class=muted>Weather outlook from an older version; the next refresh replaces it.</p>"
     rows = []
     for _, r in outlook.iterrows():
         change = r.get("change_vs_previous", np.nan)
         rows.append(f"<tr><td>{html.escape(r['model'])}</td><td class=num>{num(r['hdd_days_1_7'], 0)}</td>"
-                    f"{signed_cell(r['vs_normal_days_1_7'], 0)}<td class=num>{num(r['hdd_days_8_15'], 0)}</td>"
-                    f"{signed_cell(r['vs_normal_days_8_15'], 0)}{signed_cell(change, 1)}</tr>")
+                    f"<td class=num>{num(r['cdd_days_1_7'], 0)}</td>{signed_cell(r['vs_normal_days_1_7'], 0)}"
+                    f"<td class=num>{num(r['tdd_days_8_15'], 0)}</td>{signed_cell(r['vs_normal_days_8_15'], 0)}"
+                    f"{signed_cell(change, 1)}</tr>")
     extra = "".join(f"<p class=muted>Could not fetch {html.escape(e)}</p>" for e in errors)
-    return ("<table><thead><tr><th>Model</th><th>HDD days 1–7</th><th>vs normal</th><th>HDD days 8–15</th>"
-            "<th>vs normal</th><th>change since last run</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
-            "<p class=muted>Population-weighted heating degree days, 15 large US cities. Positive = colder = more "
-            "heating demand, supportive for natural gas and heating oil. Context, not a tested signal; when the "
-            "models disagree, the outlook is uncertain.</p>" + extra)
+    return ("<table><thead><tr><th>Model</th><th>HDD days 1–7</th><th>CDD days 1–7</th><th>total vs normal</th>"
+            "<th>total days 8–15</th><th>vs normal</th><th>change since last run</th></tr></thead><tbody>"
+            + "".join(rows) + "</tbody></table>"
+            "<p class=muted>Gas-weighted degree days in 26 US cities: heating (cities weighted by homes heated with "
+            "gas) plus cooling (weighted by gas in their power generation). Positive = more gas demand than normal "
+            "or than the previous run, supportive for natural gas. The tested record is in the signal database; "
+            "when the models disagree, the outlook is uncertain.</p>" + extra)
 
 
 def model_block(model):
@@ -193,6 +198,7 @@ def render(table, model, outlook, weather_errors, notes, watch, risk):
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#111418; --card:#1a1f25; --ink:#e6e9ec; --muted:#9aa5ae;
         --rule:#2c333b; --up:#4ade80; --down:#fb923c; --accent:#93b4ff; --warn-bg:#2a2016; }} }}
 body {{ margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }}
+a {{ color:var(--accent); }}
 main {{ max-width:1400px; margin:0 auto; padding:16px; }}
 h1 {{ font-size:22px; margin:4px 0; }} h2 {{ font-size:16px; margin:0 0 8px; }}
 .card {{ background:var(--card); border:1px solid var(--rule); border-radius:8px; padding:14px; margin:12px 0; overflow-x:auto; }}
@@ -206,7 +212,8 @@ tr.sector td {{ font-weight:600; color:var(--accent); padding-top:12px; }}
 </style></head><body><main>
 <h1>CME Challenge Desk</h1>
 <div class="muted">Updated {now:%a %d %b %H:%M} CT · prices from Yahoo (delayed about 10 min; CQG shows the live price),
-latest bar {freshest} · sizes for ${risk:,.0f} of daily volatility per position{f' · reloads every {watch:g} min' if watch else ''}</div>
+latest bar {freshest} · sizes for ${risk:,.0f} of daily volatility per position{f' · reloads every {watch:g} min' if watch else ''}
+· <a href="cme/cme.html">signal database</a> (run <code>cme</code> to update)</div>
 <div class="bar"><b>{days_left} trading days left.</b> Be flat before <b>Fri 30 Oct, 16:00 CT</b> (open contracts are
 penalised) and trade at least <b>10 contracts every day</b>.{fed}</div>
 <div class="card"><h2>Where the signals agree</h2><table><thead><tr><th>Market</th><th>Contract</th><th>Side</th>

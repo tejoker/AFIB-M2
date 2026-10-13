@@ -10,7 +10,12 @@ Everything the trading desk dashboard and the strategy research use, and the rul
 | Commodity contract history (seasonality, backtests, model) | Databento, CME Globex daily bars | About $9 once for all 18 commodities since 2010; cents per daily update | One teammate, who holds the key | Once, then `refresh.py --databento` daily |
 | Contract definitions (delivery month, expiry) | Databento | A few cents in total | Same teammate (automatic) | With each Databento run |
 | Equity index, rates and FX history | Yahoo continuous series (fallback, roll gaps kept, no carry) | Free | Automatic in `continuous.py` | Each rebuild |
-| US heating-demand weather outlook | Open-Meteo: ECMWF AIFS (AI), ECMWF IFS, NOAA GFS | Free (non-commercial) | Automatic in `refresh.py` | Every refresh |
+| US gas-demand weather outlook (heating and cooling, 26 cities) | Open-Meteo: ECMWF AIFS (AI), ECMWF IFS, NOAA GFS | Free (non-commercial) | Automatic in `refresh.py` and `cme` | Every refresh |
+| Archived weather forecasts and actual weather (signal history, normals) | Open-Meteo Previous Runs and Archive APIs | Free (non-commercial) | Automatic; first download about 20 minutes | Daily in `cme` |
+| Hedge fund positioning, all 18 commodities | CFTC Commitments of Traders, disaggregated (publicreporting.cftc.gov) | Free, no key | Automatic in `cme` | Weekly (Friday) |
+| Natural gas storage, LNG exports, dry gas production | EIA history workbooks (eia.gov/dnav) | Free, no key | Automatic in `cme` | Weekly (Thursday) / monthly |
+| European gas price (TTF) | Yahoo (`TTF=F`) | Free | Automatic in `cme` | Every run |
+| Active tropical storms | NOAA National Hurricane Center | Free | Automatic in `cme` | Every run |
 
 Bloomberg is optional: `bloomberg/futures_contracts.py --tiers 3` can replace the Yahoo fallback for financial futures on a PC with the Terminal.
 
@@ -71,6 +76,10 @@ Only some markets: `--roots LE HE CL` (CME symbols).
 - All 18 commodities, June 2010 to 9 October 2026: 2,475 contracts. Prices agree with Yahoo within a median 0.04-0.71% (the gap is the UTC-day close versus settlement); expiry dates come from Databento's definitions.
 - Credit used: about $17.80 of $125. That is $8.75 for the history, $8.75 again after a bug that the saved raw copy now makes unnecessary, $0.14 to fill a natural-gas gap (CME writes NG with two-digit years, NGZ26, since mid-2025) and cents for definitions.
 - The data sits on the Ubuntu PC that downloaded it, under `data/futures/`. Upload that folder into `AFIB-data` (OneDrive in a browser: Upload > Folder) so nobody pays for it again.
+
+## Gas drivers not covered yet
+
+These move natural gas but have no free daily source wired in: LNG feedgas flows (terminal by terminal, daily), European storage (GIE AGSI+, free key), US power demand including data centers (EIA-930, free key), Baker Hughes rig counts. Data centers raise demand over years and are priced in the contracts months out; for 1-15 day trades the weather, storage and LNG outages matter more.
 
 ## Known limits of the data
 

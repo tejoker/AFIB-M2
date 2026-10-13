@@ -1,0 +1,6 @@
+#!/bin/sh
+# The CME signal database: updates every source, prints the views and opens the page (cme --help).
+here="$(cd "$(dirname "$0")" && pwd)"
+py="$here/.venv/bin/python"
+[ -x "$py" ] || py=python3
+exec "$py" "$here/cme_challenge/signal_db.py" "$@"

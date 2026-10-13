@@ -2,13 +2,13 @@
 
 Data: Open-Meteo's Previous Runs API keeps, for each day, what a model forecast 1 to 7 days earlier. Archives
 start around mid-2021 for NOAA GFS, March 2024 for ECMWF IFS and February 2025 for ECMWF's AI model (AIFS),
-so only GFS spans several winters. Temperatures for 15 large US cities become population-weighted heating
-degree days (as in weather.py) and are cached under <data>/futures/weather/previous_runs/.
+so only GFS spans several winters. Temperatures for the 26 US cities of weather.py become gas-weighted degree
+days, heating plus cooling (TDD, as in weather.py), and are cached under <data>/futures/weather/previous_runs/.
 
 Signals, from forecasts issued at day t for days t+1..t+7:
-  revision  the 7-day heating-degree-day forecast against the one issued the day before, on the same days
-            (colder = long natural gas): what weather traders react to
-  anomaly   the 7-day forecast against the 2016-2025 normal (colder than normal = long)
+  revision  the 7-day degree-day forecast against the one issued the day before, on the same days (more heating
+            or cooling demand = long natural gas): what weather traders react to
+  anomaly   the 7-day forecast against the 2016-2025 normal (more demand than normal = long)
 
 Timing: a day's position uses only forecasts issued up to the previous day and is taken at that day's close
 ("next day"), so no forecast published after the close is used. "same day" uses that day's forecasts at that
@@ -16,13 +16,12 @@ day's close, which includes runs published after the 2:30 pm ET settlement (opti
 correlation between a revision and the same day's price move, which happens before you can trade it.
 
 Returns: the roll-correct natural gas and heating oil series (cme_challenge/continuous.py, Databento), daily,
-before costs, by season (heating = November to March).
+before costs, by season: heating (November to March), cooling (June to September), shoulder (April, May, October).
 
 Ceiling (--ceiling): the same trade with the weather that actually happened (Open-Meteo archive, 2010 on)
 instead of a forecast, as perfect foresight, with the direction wrong 5% of the time, and with noise of the
 size GFS forecasts really had (measured on the archive above). This is hindsight: it shows how much knowing
-next week's weather is worth at most, not what a forecast everyone else also has can earn. It uses total
-degree days (heating plus cooling, base 65 F), so summer air-conditioning demand counts too.
+next week's weather is worth at most, not what a forecast everyone else also has can earn.
 
 Usage (from the repository root):
     python cme_challenge/weather_strategy.py              # download (first run about 15 min) and benchmark
@@ -50,12 +49,17 @@ SERIES = DATA / "futures" / "continuous"
 MODELS = {"NOAA GFS": ("gfs_seamless", "2021-04-01"), "ECMWF IFS": ("ecmwf_ifs025", "2024-02-01"),
           "ECMWF AIFS (AI)": ("ecmwf_aifs025_single", "2025-02-01")}
 LEADS = range(1, 8)
-HEATING = (11, 12, 1, 2, 3)
+SEASONS = {"heating": (11, 12, 1, 2, 3), "cooling": (6, 7, 8, 9), "shoulder": (4, 5, 10)}
+
+
+def by_season(index):
+    """(season, mask) pairs for a DatetimeIndex."""
+    return [(name, index.month.isin(months)) for name, months in SEASONS.items()]
 
 
 def fetch_city(model, city, start, end):
     """Daily mean temperature by target day (rows) and lead in days (columns 1..7)."""
-    lat, lon, _ = weather.CITIES[city]
+    lat, lon, *_ = weather.CITIES[city]
     data = weather.get_json("https://previous-runs-api.open-meteo.com/v1/forecast", {
         "latitude": lat, "longitude": lon, "models": model, "start_date": str(start), "end_date": str(end),
         "hourly": ",".join(f"temperature_2m_previous_day{k}" for k in LEADS), "temperature_unit": "fahrenheit",
@@ -73,7 +77,7 @@ def fetch_city(model, city, start, end):
 def load_model(label, fetch=True):
     model, first = MODELS[label]
     CACHE.mkdir(parents=True, exist_ok=True)
-    end = date.today()
+    end = date.today() + pd.Timedelta(days=8)  # targets up to a week ahead carry the forecasts issued today
     temps = {}
     for city in weather.CITIES:
         path = CACHE / f"{model}_{city.replace(' ', '_')}.parquet"
@@ -88,31 +92,44 @@ def load_model(label, fetch=True):
                 cached.set_axis([str(c) for c in cached.columns], axis=1).to_parquet(path)
             except (urllib.error.URLError, KeyError, ValueError) as e:
                 print(f"  {label} {city}: fetch failed ({e}); using what is cached", file=sys.stderr)
-            time.sleep(12)  # long ranges weigh like many calls in Open-Meteo's per-minute limit
+            # long ranges weigh like many calls in Open-Meteo's per-minute limit; a daily update is light
+            time.sleep(12 if (end - start).days > 60 else 1)
         if len(cached):
             temps[city] = cached
     return temps
 
 
-def weighted_hdd_by_lead(temps):
-    """Population-weighted heating degree days: target day x lead."""
+def degree_days_by_lead(temps, kind="tdd"):
+    """Gas-weighted degree days (weather.degree_days, column `kind`): target day x lead."""
     out = {}
     for k in LEADS:
         frame = pd.DataFrame({city: t[k] for city, t in temps.items() if k in t})
-        out[k] = weather.weighted(weather.hdd(frame))
+        out[k] = weather.degree_days(frame)[kind]
     return pd.DataFrame(out).sort_index()
 
 
-def signals(hdd, normal_by_day):
+def signals(dd, normal_by_day):
     """Per issue day t: 7-day forecast, its revision since t-1 (same target days) and its anomaly."""
-    days = pd.date_range(hdd.index.min(), hdd.index.max())
-    hdd = hdd.reindex(days)
-    made = {k: hdd[k].shift(-k) for k in LEADS}                       # forecast for t+k issued at t
+    days = pd.date_range(dd.index.min(), dd.index.max())
+    dd = dd.reindex(days)
+    made = {k: dd[k].shift(-k) for k in LEADS}                        # forecast for t+k issued at t
     forecast = pd.concat(made.values(), axis=1).sum(axis=1, min_count=len(LEADS))
-    revision = pd.concat([made[k] - hdd[k + 1].shift(-k) for k in LEADS if k + 1 in LEADS],  # vs issued at t-1
+    revision = pd.concat([made[k] - dd[k + 1].shift(-k) for k in LEADS if k + 1 in LEADS],  # vs issued at t-1
                          axis=1).sum(axis=1, min_count=len(LEADS) - 1)
     normal = sum(normal_by_day.reindex(days).shift(-k) for k in LEADS)
     return pd.DataFrame({"forecast": forecast, "revision": revision, "anomaly": forecast - normal})
+
+
+def forecast_signals(label="NOAA GFS", fetch=True, normal=None):
+    """Revision and anomaly of one model's 7-day TDD forecast per issue day, over the cities with a normal."""
+    normal = weather.normals(fetch=False) if normal is None else normal
+    temps = {c: t for c, t in load_model(label, fetch).items() if c in normal["hdd"].columns}
+    if not temps:
+        return pd.DataFrame(columns=["forecast", "revision", "anomaly"])
+    dd = degree_days_by_lead(temps)
+    days = pd.date_range(dd.index.min(), dd.index.max() + pd.Timedelta(days=8))
+    normal_day = weather.normal_degree_days(normal, days, list(temps))["tdd"]
+    return signals(dd, normal_day).dropna(how="all")
 
 
 def daily_pnl(signal, ret, hold, lag):
@@ -133,18 +150,13 @@ def stats(pnl):
 
 
 def benchmark(fetch):
-    normal = weather.normals()
-    cities = [c for c in weather.CITIES if c in normal.columns]
+    normal = weather.normals(fetch=fetch, max_new=None)
     rows, reactions = [], []
     for label in MODELS:
         print(f"{label}: {'updating' if fetch else 'loading'} archived forecasts...")
-        temps = {c: t for c, t in load_model(label, fetch).items() if c in cities}
-        if not temps:
+        sig = forecast_signals(label, fetch, normal)
+        if sig.empty:
             continue
-        hdd = weighted_hdd_by_lead(temps)
-        days = pd.date_range(hdd.index.min(), hdd.index.max() + pd.Timedelta(days=8))
-        normal_day = weather.weighted(normal.loc[np.minimum(days.dayofyear, 366), list(temps)].set_axis(days))
-        sig = signals(hdd, normal_day).dropna(how="all")
         for root, market in (("NG", "natural gas"), ("HO", "heating oil")):
             path = SERIES / f"{root}.parquet"
             if not path.exists():
@@ -152,18 +164,17 @@ def benchmark(fetch):
             ret = pd.read_parquet(path)["ret"].loc[sig.index.min():]
             same_day = sig["revision"].reindex(ret.index)
             reactions.append({"model": label, "market": market,
-                              "reaction_corr_heating": ret[ret.index.month.isin(HEATING)].corr(same_day),
-                              "reaction_corr_other": ret[~ret.index.month.isin(HEATING)].corr(same_day)})
+                              **{f"reaction_corr_{season}": ret[mask].corr(same_day[mask])
+                                 for season, mask in by_season(ret.index)}})
             for name in ("revision", "anomaly"):
                 for hold in (1, 5):
                     for timing, lag in (("next day", 1), ("same day (optimistic)", 0)):
                         pnl, _ = daily_pnl(sig[name], ret, hold, lag)
-                        for season, mask in (("heating", pnl.index.month.isin(HEATING)),
-                                             ("rest of year", ~pnl.index.month.isin(HEATING))):
+                        for season, mask in by_season(pnl.index):
                             rows.append({"model": label, "market": market, "signal": name, "hold_days": hold,
                                          "timing": timing, "season": season, "from": pnl.index.min().date(),
                                          **stats(pnl[mask])})
-            for season, mask in (("heating", ret.index.month.isin(HEATING)), ("rest of year", ~ret.index.month.isin(HEATING))):
+            for season, mask in by_season(ret.index):
                 rows.append({"model": label, "market": market, "signal": "buy and hold", "hold_days": None,
                              "timing": "", "season": season, "from": ret.index.min().date(), **stats(ret[mask])})
     table, reaction = pd.DataFrame(rows), pd.DataFrame(reactions)
@@ -182,42 +193,9 @@ def benchmark(fetch):
 
 # --------------------------------------------------------------------------- hindsight ceiling
 
-ACTUALS = DATA / "futures" / "weather" / "actuals.parquet"
-
-
-def actual_temps(start="2010-01-01"):
-    """Daily mean temperature (F) per city from the Open-Meteo archive, cached; resumes after a rate limit."""
-    table = pd.read_parquet(ACTUALS) if ACTUALS.exists() else pd.DataFrame()
-    end = (date.today() - pd.Timedelta(days=6)).isoformat()  # the archive lags a few days
-    for city, (lat, lon, _) in weather.CITIES.items():
-        have = table[city].dropna() if city in table else pd.Series(dtype=float)
-        first = (have.index.max() + pd.Timedelta(days=1)).date().isoformat() if len(have) else start
-        if first >= end:
-            continue
-        try:
-            data = weather.get_json("https://archive-api.open-meteo.com/v1/archive", {
-                "latitude": lat, "longitude": lon, "start_date": first, "end_date": end,
-                "daily": "temperature_2m_mean", "temperature_unit": "fahrenheit", "timezone": "auto"})
-        except urllib.error.URLError as e:
-            print(f"  actuals stopped at {city} ({e}); rerun later to finish", file=sys.stderr)
-            break
-        new = pd.Series(data["daily"]["temperature_2m_mean"], index=pd.to_datetime(data["daily"]["time"]),
-                        dtype=float, name=city)
-        table = new.to_frame() if table.empty else table.combine_first(new.to_frame())
-        ACTUALS.parent.mkdir(parents=True, exist_ok=True)
-        table.to_parquet(ACTUALS)
-        time.sleep(45)  # 16 years of archive weigh like hundreds of calls
-    return table
-
-
-def degree_days(temp_f):
-    """Heating plus cooling degree days (base 65 F): energy demand from cold and heat."""
-    return (weather.BASE_F - temp_f).abs()
-
-
 def demand_anomaly(temps):
     """Next-7-day population-weighted degree days against the same calendar days' average, per day t."""
-    dd = weather.weighted(degree_days(temps)).dropna()
+    dd = weather.degree_days(temps)["tdd"].dropna()
     by_doy = dd.groupby(np.minimum(dd.index.dayofyear, 365)).mean()
     smooth = pd.concat([by_doy.iloc[-7:], by_doy, by_doy.iloc[:7]]).rolling(15, center=True).mean().iloc[7:-7]
     anomaly_day = dd - smooth.reindex(np.minimum(dd.index.dayofyear, 365)).to_numpy()
@@ -227,22 +205,23 @@ def demand_anomaly(temps):
 def gfs_error_ratio():
     """Std of GFS's 7-day degree-day forecast error relative to the std of the actual 7-day anomaly."""
     temps = {c: t for c, t in load_model("NOAA GFS", fetch=False).items()}
-    actual = actual_temps()
+    actual = weather.actual_temps()
     if not temps or actual.empty:
         return np.nan
     cities = [c for c in temps if c in actual]
     forecast = {}
     for k in LEADS:
         frame = pd.DataFrame({c: temps[c][k] for c in cities})
-        forecast[k] = weather.weighted(degree_days(frame)).shift(-k)  # issued at t for t+k
+        forecast[k] = weather.degree_days(frame)["tdd"].shift(-k)  # issued at t for t+k
     fsum = pd.concat(forecast.values(), axis=1).sum(axis=1, min_count=len(LEADS))
-    asum = sum(weather.weighted(degree_days(actual[cities])).shift(-k) for k in LEADS)
+    asum = sum(weather.degree_days(actual[cities])["tdd"].shift(-k) for k in LEADS)
     both = pd.concat([fsum, asum, demand_anomaly(actual[cities])], axis=1, keys=["f", "a", "anom"]).dropna()
     return (both["f"] - both["a"]).std() / both["anom"].std()
 
 
 def ceiling(fetch=True):
-    actual = actual_temps() if fetch else (pd.read_parquet(ACTUALS) if ACTUALS.exists() else pd.DataFrame())
+    actual = weather.actual_temps() if fetch else (pd.read_parquet(weather.ACTUALS) if weather.ACTUALS.exists()
+                                                   else pd.DataFrame())
     if actual.empty:
         raise SystemExit("No actual temperatures yet; run --ceiling without --no-fetch")
     anomaly = demand_anomaly(actual).dropna()
@@ -264,15 +243,14 @@ def ceiling(fetch=True):
         for name, signal in versions.items():
             for hold in (1, 5):
                 pnl, _ = daily_pnl(signal, ret, hold, lag=0)  # at the close of day t, about days t+1..t+7
-                for season, mask in (("heating", pnl.index.month.isin(HEATING)),
-                                     ("rest of year", ~pnl.index.month.isin(HEATING))):
+                for season, mask in by_season(pnl.index):
                     rows.append({"market": market, "weather known": name, "hold_days": hold, "season": season,
                                  "from": pnl.index.min().date(), **stats(pnl[mask])})
     table = pd.DataFrame(rows)
     RESEARCH.mkdir(parents=True, exist_ok=True)
     table.to_csv(RESEARCH / "weather_ceiling.csv", index=False)
     pd.set_option("display.width", 220)
-    print("Hindsight ceiling: trading on next week's ACTUAL weather (long when more heating + cooling demand than "
+    print("Hindsight ceiling: trading on next week's ACTUAL weather (long when more gas-weighted degree days than "
           "normal).\nNot tradable: it shows the most any forecast could add.\n")
     print(table.round(2).to_string(index=False))
     print(f"\nSaved {RESEARCH / 'weather_ceiling.csv'}")

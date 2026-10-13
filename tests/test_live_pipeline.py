@@ -92,22 +92,36 @@ class Conviction(unittest.TestCase):
 
 
 class Weather(unittest.TestCase):
+    @staticmethod
+    def normal(cities, hdd, cdd=0.0):
+        return {"hdd": pd.DataFrame({c: hdd for c in cities}, index=range(1, 367)),
+                "cdd": pd.DataFrame({c: cdd for c in cities}, index=range(1, 367))}
+
     def test_outlook_against_normal_and_previous_run(self):
         days = pd.date_range("2026-10-12", periods=15)
         temps = pd.DataFrame({"New York": 55.0, "Chicago": 55.0}, index=days)  # 10 HDD a day each
-        normal = pd.DataFrame({"New York": 8.0, "Chicago": 8.0}, index=range(1, 367))
-        previous = pd.DataFrame({"fetched_at": "2026-10-11T08:00", "model": "AI", "date": days[:10], "hdd": 12.0})
-        row = weather.outlook({"AI": temps}, normal, previous).iloc[0]
+        previous = pd.DataFrame({"fetched_at": "2026-10-11T08:00", "model": "AI", "date": days[:10], "tdd": 12.0})
+        row = weather.outlook({"AI": temps}, self.normal(["New York", "Chicago"], 8.0), previous).iloc[0]
         self.assertEqual(row["hdd_days_1_7"], 70)
+        self.assertEqual(row["cdd_days_1_7"], 0)
         self.assertEqual(row["hdd_days_8_15"], 80)
         self.assertEqual(row["vs_normal_days_1_7"], 14)
-        self.assertEqual(row["change_vs_previous"], -20)  # 2 HDD warmer on each of the 10 common days
+        self.assertEqual(row["change_vs_previous"], -20)  # 2 degree days fewer on each of the 10 common days
 
-    def test_short_forecast_is_not_read_as_warm(self):
+    def test_heat_counts_as_gas_demand(self):
+        days = pd.date_range("2026-07-01", periods=15)
+        temps = pd.DataFrame({"Miami": 85.0, "Seattle": 65.0}, index=days)  # 20 CDD in Miami, none in Seattle
+        row = weather.outlook({"AI": temps}, self.normal(["Miami", "Seattle"], 0.0, 10.0)).iloc[0]
+        miami = weather.COOLING_WEIGHT["Miami"] / (weather.COOLING_WEIGHT["Miami"] + weather.COOLING_WEIGHT["Seattle"])
+        self.assertEqual(row["hdd_days_1_7"], 0)
+        self.assertAlmostEqual(row["cdd_days_1_7"], 7 * 20 * miami)
+        self.assertGreater(miami, 0.9)  # Miami's power is mostly gas, Seattle's mostly hydro
+        self.assertAlmostEqual(row["vs_normal_days_1_7"], 7 * (20 * miami - 10))
+
+    def test_short_forecast_is_not_read_as_mild(self):
         temps = pd.DataFrame({"New York": 55.0}, index=pd.date_range("2026-10-12", periods=10))
-        normal = pd.DataFrame({"New York": 8.0}, index=range(1, 367))
-        row = weather.outlook({"AI": temps}, normal).iloc[0]
-        self.assertTrue(np.isnan(row["hdd_days_8_15"]))
+        row = weather.outlook({"AI": temps}, self.normal(["New York"], 8.0)).iloc[0]
+        self.assertTrue(np.isnan(row["tdd_days_8_15"]))
 
 
 class Model(unittest.TestCase):

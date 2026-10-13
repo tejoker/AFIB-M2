@@ -10,8 +10,9 @@ The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloombe
 |---|---|
 | `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (futures contract histories from Bloomberg), `bgtc_screen.py` (stock screen for the Bloomberg Global Trading Challenge), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
 | `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`) and regression data checks |
+| `research/bgtc_events/` | `strategy.py`: Bloomberg challenge event strategies from saved data, Russell 1000/2000 migration at the December 2026 reconstitution (rank day 30 Oct) and IG/HY rating-outlook evidence and avoid list |
 | `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
-| `cme_challenge/` | CME challenge research: contract histories from Databento, roll-correct series, strategy research (seasonal windows, trend, carry), the model and the trading desk dashboard; no Bloomberg login needed |
+| `cme_challenge/` | CME challenge research: contract histories from Databento, roll-correct series, strategy research (seasonal windows, trend, carry), the model, the trading desk dashboard and the signal database (`signal_db.py`, run by `cme`) with hedge fund positioning (`cot.py`), gas fundamentals (`gas.py`) and weather; no Bloomberg login needed |
 | `cqg/` | CQG Web API connectivity tests and the credentials template |
 | `tests/` | Offline tests; no Bloomberg or CQG access needed |
 | `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
@@ -114,10 +115,26 @@ python cme_challenge/refresh.py --databento     # also add the latest Databento 
 Each refresh:
 - pulls the latest prices for all 34 markets from Yahoo (delayed about 10 minutes) and picks the contract to trade;
 - recomputes trend, carry, seasonality and the model's view, with position sizes;
-- fetches the US heating-demand outlook from ECMWF's AI model (AIFS), ECMWF IFS and NOAA GFS through [Open-Meteo](https://open-meteo.com/), which is free for non-commercial use;
+- fetches the US gas-demand weather outlook (heating and cooling degree days, 26 cities) from ECMWF's AI model (AIFS), ECMWF IFS and NOAA GFS through [Open-Meteo](https://open-meteo.com/), which is free for non-commercial use;
 - writes `futures/dashboard.html` in the data folder.
 
-With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the contract history has been collected (previous section). The first refresh also downloads ten years of weather normals (about four minutes, once). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
+With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the contract history has been collected (previous section). Weather normals come from 16 years of actual weather per city, downloaded a couple of cities per refresh until complete (or at once with `python cme_challenge/weather_strategy.py --ceiling`). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
+
+## Signal database: `cme`
+
+From the repository folder (the Windows setup script also puts it on the PATH, so any new terminal works):
+
+```powershell
+cme                 # update every source, print the views, open futures/cme/cme.html
+cme --offline       # use what is saved, download nothing
+cme --root NG       # also print every strategy and horizon for natural gas
+```
+
+For each of the 18 CME commodities and each horizon (1, 2, 5 and 15 trading days) it lists every strategy's signal today and its record: momentum over 1 day to 12 months (a negative IC means moves reverse), carry, seasonality, hedge fund positioning (CFTC), a ridge regression combining them, and for natural gas the weather (gas-weighted heating plus cooling degree days), EIA storage against its 5-year average and Europe's TTF price. Heating oil also gets the weather signals.
+
+The record is an information coefficient measured without look-ahead: each signal is standardised on its own past, the t-statistic comes from yearly blocks, and q-values correct for testing hundreds of combinations. Each strategy is also tested on all 18 markets together, which can prove an edge too small to see market by market. "Reliable" means q below 0.10 and the same sign over the last 3 years; most rows are noise, and the page says so rather than hiding it.
+
+Each run adds the missing Databento days (cents) when the history is behind, and refreshes CFTC positioning, EIA storage and monthly LNG exports and production, TTF, active hurricanes and the weather. Results go to `futures/cme/` in the data folder: `signals.csv` (every row), `summary.csv` (per market and horizon) and `cme.html` (sortable, filterable). The trading dashboard links to it.
 
 ## Research workflow (Russell liquidity)
 

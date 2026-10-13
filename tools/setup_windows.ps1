@@ -70,7 +70,17 @@ Invoke-Checked $venv @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Checked $venv @("-m", "pip", "install", "-r", "requirements.txt")
 Invoke-Checked $venv @("-m", "pip", "install", "-r", "requirements-bloomberg.txt")
 
+Write-Host "== cme command"
+# The repository on this user's PATH, so cme.bat runs from any terminal
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$entries = @(if ($userPath) { $userPath -split ";" | Where-Object { $_ } })
+if ($entries -notcontains $Repo) {
+    [Environment]::SetEnvironmentVariable("Path", (@($entries) + $Repo) -join ";", "User")
+    Write-Host "Added $Repo to your PATH"
+}
+
 Write-Host "== Check"
 & $venv verify_setup.py
 Write-Host ""
 Write-Host "Done. Code in $Repo; run scripts with .\.venv\Scripts\python.exe from that folder."
+Write-Host "Open a new terminal and type cme for the signal database."
