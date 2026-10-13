@@ -31,6 +31,8 @@ class FakeBloomberg:
 
     def index_members(self, index):
         self.requests += 1
+        if index == "WLS Index":  # a full-size benchmark list that leaves out one screened stock
+            return [t for t in STOCKS if t != "MEH US Equity"] + [f"X{i} US Equity" for i in range(4000)]
         return list(STOCKS) if index == "SPX Index" else []
 
     def field_info(self, fields):
@@ -87,6 +89,8 @@ class Screen(unittest.TestCase):
         self.assertIn("RISK US Equity", xl.parse("Credit danger - avoid", index_col=0).index)
         self.assertAlmostEqual(top.loc["WIN US Equity", "earnings_reaction"], 1.08 * 1.002 ** 2 - 1, places=3)
         self.assertTrue(top["reports_in_challenge"].all())
+        self.assertNotIn("MEH US Equity", top.index)        # not in the WLS benchmark: cannot be traded
+        self.assertIn("Top large and mid caps", xl.sheet_names)
 
     def test_other_index_selection_does_not_reuse_saved_universe(self):
         self.run_screen()

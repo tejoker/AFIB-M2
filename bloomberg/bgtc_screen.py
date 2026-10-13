@@ -36,6 +36,7 @@ REFERENCE_FIELDS = [
 ]
 MOODYS = ["RTG_MDY_LONG_TERM", "RTG_MDY_ISSUER", "RTG_MDY_SEN_UNSECURED_DEBT"]  # first one the Terminal knows
 OUT = DATA / "bgtc"
+BENCHMARK = "WLS Index"  # the challenge allows any stock in it
 CHALLENGE = (date(2026, 10, 16), date(2026, 11, 13))
 LOW_IG_OR_WORSE = ["BBB-", "BB+", "BB", "BB-", "B+", "B", "B-", "CCC+", "CCC", "CCC-", "CC", "C", "D"]
 MDY_LOW = ["Baa3", "Ba1", "Ba2", "Ba3", "B1", "B2", "B3", "Caa1", "Caa2", "Caa3", "Ca", "C"]
@@ -55,6 +56,23 @@ def universe(bbg, indices, today):
     write_parquet(path, uni)
     log.info("Universe: %d stocks from %s", len(uni), ", ".join(indices))
     return uni
+
+
+def benchmark_members(bbg, tickers, today):
+    """Which screened stocks are in the WLS benchmark (only those can be traded); None if the list looks partial."""
+    path = OUT / f"wls_members_{today[:10]}.parquet"
+    if path.exists():
+        members = set(pd.read_parquet(path)["ticker"])
+    else:
+        members = set(bbg.index_members(BENCHMARK))
+        write_parquet(path, pd.DataFrame({"ticker": sorted(members)}))
+    found = pd.Series([t in members for t in tickers], index=tickers)
+    if len(members) < 3000 or found.mean() < 0.3:  # Bloomberg caps member lists; do not trust a short one
+        log.warning("%s returned %d members (%.0f%% of the screen found): membership not checked; verify picks "
+                    "with MEMB on %s", BENCHMARK, len(members), 100 * found.mean(), BENCHMARK)
+        return None
+    log.info("%s: %d members; %d of %d screened stocks are eligible", BENCHMARK, len(members), found.sum(), len(found))
+    return found
 
 
 def reference(bbg, tickers, today):
@@ -142,7 +160,7 @@ def credit_danger(df):
     return (low & (negative("RTG_SP_OUTLOOK") | negative("RTG_MDY_OUTLOOK") | watch_neg)).fillna(False)
 
 
-def rank(sig):
+def rank(sig, eligible=None):
     """Composite score: momentum and earnings reaction first, analyst upside second; liquid, no credit danger."""
     def z(s):
         s = s.astype(float).clip(s.quantile(0.02), s.quantile(0.98))
@@ -155,12 +173,15 @@ def rank(sig):
     if "target_upside" in sig:
         score += 0.2 * z(sig["target_upside"]).fillna(0)
     out = sig.assign(score=score, liquid=liquid)
+    out["in_benchmark"] = eligible.reindex(out.index) if eligible is not None else np.nan
     keep = out["liquid"] & ~out["credit_danger"] & out["mom_12_1"].notna()
+    if eligible is not None:
+        keep &= out["in_benchmark"].fillna(False).astype(bool)
     return out[keep].sort_values("score", ascending=False), out
 
 
 def write_report(ranked, everything, today):
-    cols = [c for c in ["NAME", "index", "GICS_SECTOR_NAME", "COUNTRY_ISO", "score", "mom_12_1", "earnings_reaction",
+    cols = [c for c in ["NAME", "index", "in_benchmark", "GICS_SECTOR_NAME", "COUNTRY_ISO", "score", "mom_12_1", "earnings_reaction",
                         "last_report", "EXPECTED_REPORT_DT", "reports_in_challenge", "target_upside",
                         "BEST_ANALYST_RATING", "from_52w_high", "ret_1m", "vol_60d", "RTG_SP_LT_LC_ISSUER_CREDIT",
                         "RTG_SP_OUTLOOK", *MOODYS, "RTG_MDY_OUTLOOK", "CUR_MKT_CAP", "CRNCY"]
@@ -169,7 +190,9 @@ def write_report(ranked, everything, today):
     recent = ranked[ranked["earnings_reaction"].notna()].sort_values("earnings_reaction", ascending=False)
     upcoming = ranked[ranked["reports_in_challenge"].fillna(False).astype(bool)] if "reports_in_challenge" in ranked \
         else ranked.iloc[:0]
+    large_mid = ranked[ranked["index"].astype(str) != "R2000"] if "index" in ranked else ranked
     with pd.ExcelWriter(path) as xl:
+        large_mid[cols].head(60).to_excel(xl, sheet_name="Top large and mid caps")
         ranked[cols].head(60).to_excel(xl, sheet_name="Top candidates")
         recent[recent["mom_12_1"] > 0][cols].head(40).to_excel(xl, sheet_name="Strong recent reporters")
         upcoming[cols].head(60).to_excel(xl, sheet_name="Reporting in challenge")
@@ -197,11 +220,13 @@ def main():
         tickers = sorted(uni["ticker"])
         ref = reference(bbg, tickers, today).merge(uni, on="ticker", how="left")
         px = prices(bbg, tickers, today)
-        ranked, everything = rank(signals(px, ref, today))
+        eligible = benchmark_members(bbg, tickers, today)
+        ranked, everything = rank(signals(px, ref, today), eligible)
         path = write_report(ranked, everything, today)
         log.info("Screen saved: %s (%d candidates after filters, %d in credit danger)", path, len(ranked),
                  int(everything["credit_danger"].sum()))
-        top = ranked.head(15)
+        top = ranked[ranked["index"].astype(str) != "R2000"].head(15) if "index" in ranked else ranked.head(15)
+        print("Top large and mid caps (the full ranking, small caps included, is in the file):")
         print(top[[c for c in ["NAME", "score", "mom_12_1", "earnings_reaction", "target_upside"] if c in top]]
               .round(3).to_string())
     except LimitReached as e:
