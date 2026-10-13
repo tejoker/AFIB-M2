@@ -31,8 +31,10 @@ INDICES = {"SPX": "SPX Index", "R1000": "RIY Index", "R2000": "RTY Index", "STOX
 REFERENCE_FIELDS = [
     "NAME", "GICS_SECTOR_NAME", "COUNTRY_ISO", "CRNCY", "CUR_MKT_CAP", "PX_LAST", "VOLUME_AVG_20D",
     "LATEST_ANNOUNCEMENT_DT", "EXPECTED_REPORT_DT", "BEST_TARGET_PRICE", "BEST_ANALYST_RATING",
-    "RTG_SP_LT_LC_ISSUER_CREDIT", "RTG_SP_OUTLOOK", "RTG_MDY_LONG_TERM", "RTG_MDY_OUTLOOK",
+    "RTG_SP_LT_LC_ISSUER_CREDIT", "RTG_SP_OUTLOOK", "RTG_MDY_LONG_TERM", "RTG_MDY_ISSUER",
+    "RTG_MDY_SEN_UNSECURED_DEBT", "RTG_MDY_OUTLOOK",
 ]
+MOODYS = ["RTG_MDY_LONG_TERM", "RTG_MDY_ISSUER", "RTG_MDY_SEN_UNSECURED_DEBT"]  # first one the Terminal knows
 OUT = DATA / "bgtc"
 CHALLENGE = (date(2026, 10, 16), date(2026, 11, 13))
 LOW_IG_OR_WORSE = ["BBB-", "BB+", "BB", "BB-", "B+", "B", "B-", "CCC+", "CCC", "CCC-", "CC", "C", "D"]
@@ -42,7 +44,7 @@ log = logging.getLogger("bgtc")
 
 
 def universe(bbg, indices, today):
-    path = OUT / f"universe_{today}.parquet"
+    path = OUT / f"universe_{today}.parquet"  # `today` carries the index selection too (see main)
     if path.exists():
         return pd.read_parquet(path)
     rows = []
@@ -104,7 +106,7 @@ def signals(px, ref, today):
     dates = px.index
     for t in out.index:
         a = ann.get(t, pd.NaT)
-        if pd.isna(a) or a < pd.Timestamp(today) - pd.Timedelta(days=75):
+        if pd.isna(a) or a < pd.Timestamp(date.today()) - pd.Timedelta(days=75):
             continue
         i = dates.searchsorted(a)  # first trading day on or after the announcement
         if i < 1 or i + 1 >= len(dates):
@@ -130,7 +132,10 @@ def credit_danger(df):
     def negative(col):
         return df[col].astype(str).str.upper().str.contains("NEG|\\*-", regex=True) if col in df else False
     sp = df["RTG_SP_LT_LC_ISSUER_CREDIT"].astype(str) if "RTG_SP_LT_LC_ISSUER_CREDIT" in df else pd.Series("", index=df.index)
-    mdy = df["RTG_MDY_LONG_TERM"].astype(str) if "RTG_MDY_LONG_TERM" in df else pd.Series("", index=df.index)
+    mdy = pd.Series("", index=df.index)
+    for col in MOODYS:  # fill from whichever Moody's fields this Terminal returned
+        if col in df:
+            mdy = mdy.where(mdy.str.len() > 0, df[col].fillna("").astype(str))
     low = sp.str.replace(r"\s.*$", "", regex=True).isin(LOW_IG_OR_WORSE) | \
         mdy.str.replace(r"\(P\)|\s.*$", "", regex=True).isin(MDY_LOW)
     watch_neg = sp.str.contains(r"\*-", regex=True) | mdy.str.contains(r"\*-", regex=True)
@@ -158,7 +163,7 @@ def write_report(ranked, everything, today):
     cols = [c for c in ["NAME", "index", "GICS_SECTOR_NAME", "COUNTRY_ISO", "score", "mom_12_1", "earnings_reaction",
                         "last_report", "EXPECTED_REPORT_DT", "reports_in_challenge", "target_upside",
                         "BEST_ANALYST_RATING", "from_52w_high", "ret_1m", "vol_60d", "RTG_SP_LT_LC_ISSUER_CREDIT",
-                        "RTG_SP_OUTLOOK", "RTG_MDY_LONG_TERM", "RTG_MDY_OUTLOOK", "CUR_MKT_CAP", "CRNCY"]
+                        "RTG_SP_OUTLOOK", *MOODYS, "RTG_MDY_OUTLOOK", "CUR_MKT_CAP", "CRNCY"]
             if c in everything]
     path = OUT / f"screen_{today}.xlsx"
     recent = ranked[ranked["earnings_reaction"].notna()].sort_values("earnings_reaction", ascending=False)
@@ -183,7 +188,8 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                         handlers=[logging.FileHandler(LOGS / "bgtc_screen.log", encoding="utf-8"),
                                   logging.StreamHandler(sys.stdout)])
-    today = date.today().isoformat()
+    # saved progress is per day and per index selection: a quick SPX test must not stand in for the full run
+    today = f"{date.today().isoformat()}_{'-'.join(sorted(args.indices))}"
     bbg = Bloomberg(args.max_requests)
     code = 0
     try:

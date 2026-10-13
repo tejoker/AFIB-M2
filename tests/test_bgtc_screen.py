@@ -76,7 +76,7 @@ class Screen(unittest.TestCase):
         with self.assertRaises(SystemExit) as done:
             bs.main()
         self.assertEqual(done.exception.code, 0)
-        return pd.ExcelFile(bs.OUT / f"screen_{TODAY.isoformat()}.xlsx")
+        return pd.ExcelFile(bs.OUT / f"screen_{TODAY.isoformat()}_SPX.xlsx")
 
     def test_ranking_filters_and_report(self):
         xl = self.run_screen()
@@ -87,6 +87,13 @@ class Screen(unittest.TestCase):
         self.assertIn("RISK US Equity", xl.parse("Credit danger - avoid", index_col=0).index)
         self.assertAlmostEqual(top.loc["WIN US Equity", "earnings_reaction"], 1.08 * 1.002 ** 2 - 1, places=3)
         self.assertTrue(top["reports_in_challenge"].all())
+
+    def test_other_index_selection_does_not_reuse_saved_universe(self):
+        self.run_screen()
+        sys.argv = ["bgtc_screen.py", "--indices", "SPX", "STOXX600"]
+        with self.assertRaises(SystemExit):
+            bs.main()
+        self.assertTrue((bs.OUT / f"universe_{TODAY.isoformat()}_SPX-STOXX600.parquet").exists())
 
     def test_rerun_reuses_saved_data(self):
         self.run_screen()
