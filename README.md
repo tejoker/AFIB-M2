@@ -1,155 +1,149 @@
-# AFIB-M2: Bloomberg and CQG research tools
+# AFIB-M2: trading challenge toolkit
 
-Python tools for the team's Bloomberg data collection, credit-rating and Russell liquidity research, and preparation for the CME University Trading Challenge (CQG connectivity, futures research).
+The team's tools for two competitions:
 
-The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf](docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf). For shared CME and Bloomberg research data on school OneDrive, follow [docs/OneDrive_Setup.md](docs/OneDrive_Setup.md); it supersedes the PDF's shared-folder instructions.
+| Competition | Dates | What we trade | Main tools |
+|---|---|---|---|
+| **CME University Trading Challenge** | until **Fri 30 Oct, 16:00 CT** | CME futures, through CQG | `cme` signal database, trading dashboard |
+| **Bloomberg Global Trading Challenge** | **16 Oct to 13 Nov** | long-only single stocks in the WLS Index, at most 20% per name | stock screen, Russell/credit event strategy |
 
-## Layout
+Nothing here places orders. Every output is research to discuss before trading, and returns are before commissions.
 
-| Folder | Contents |
-|---|---|
-| `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (futures contract histories from Bloomberg), `bgtc_screen.py` (stock screen for the Bloomberg Global Trading Challenge), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
-| `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`), regression data checks and the cross-sectional rating regression (`regression.py`: rating explained by size, leverage, coverage, profitability and equity volatility; out-of-sample implied ratings and the IG/HY frontier names to watch; offline) |
-| `research/bgtc_events/` | `strategy.py`: Bloomberg challenge event strategies from saved data, Russell 1000/2000 migration at the December 2026 reconstitution (rank day 30 Oct) and IG/HY rating-outlook evidence and avoid list |
-| `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
-| `cme_challenge/` | CME challenge research: contract histories from Databento, roll-correct series, strategy research (seasonal windows, trend, carry), the model, the trading desk dashboard and the signal database (`signal_db.py`, run by `cme`) with hedge fund positioning (`cot.py`), gas fundamentals (`gas.py`) and weather; no Bloomberg login needed |
-| `cqg/` | CQG Web API connectivity tests and the credentials template |
-| `tests/` | Offline tests; no Bloomberg or CQG access needed |
-| `tools/` | `check_shared_data.py` verifies the team folder; `runner.py` keeps the commands in `tools/programs.txt` running |
-| `vendor/cqg_proto/` | CQG's generated protocol modules, under the terms in `vendor/cqg_proto/LICENSE.md` |
-| `docs/` | Setup guide and its generator, [OneDrive setup](docs/OneDrive_Setup.md), [CME data guide](docs/CME_Data_Guide.md) (what to fetch from Databento and what it costs) |
+## Start here (Windows, about 10 minutes)
 
-Run every script from the repository root, e.g. `python bloomberg/bbg_collect.py --status`.
-
-## Setup on Windows
-
-Python 3.13, 64-bit. The versions are those of the working environment; `verify_setup.py` checks them.
+**1. Install.** Paste this into PowerShell (no administrator rights needed):
 
 ```powershell
-py -3.13 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip install -r requirements-bloomberg.txt
-.\.venv\Scripts\python.exe verify_setup.py
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm https://raw.githubusercontent.com/tejoker/AFIB-M2/main/tools/setup_windows.ps1 | iex
 ```
 
-`blpapi` is not on PyPI; `requirements-bloomberg.txt` installs it from Bloomberg's package index. Bloomberg Desktop API scripts need a Bloomberg Terminal logged in on the same PC (`localhost:8194`).
+It installs Python 3.13 for your user, puts the code in `%USERPROFILE%\AFIB-M2` (not in Documents, which OneDrive may sync), creates `.venv` with the pinned packages and Bloomberg's `blpapi`, puts the `cme` command on your PATH and checks everything with `verify_setup.py`. Run the same line again later to update.
 
-For CQG, copy the template and fill in your own account details locally:
-
-```powershell
-Copy-Item cqg\credentials.example.json cqg\credentials.json
-```
-
-## Data stays out of the repository
-
-Nothing downloaded from Bloomberg or CQG is committed: Bloomberg data is licensed to each user, and this repository is public. The main Bloomberg collector's data folder holds its downloaded datasets, progress, frozen ticker universe and team account list (`accounts.json`).
-
-- By default, the scripts use `data/` in the repository (git-ignored); `data_root.py` decides the folder for all of them. The Russell research scripts keep their own `--output` folder.
-- To share data between teammates, use the [OneDrive setup guide](docs/OneDrive_Setup.md). Each machine points `AFIB_DATA_DIR` at its own synced copy of the same school folder. Existing `BBG_DATA_DIR` setups remain supported:
+**2. Point at the shared data folder.** Team data lives in the school OneDrive folder `AFIB-data`, not in the repository. Follow [docs/OneDrive_Setup.md](docs/OneDrive_Setup.md) once, then set the path to your synced copy:
 
 ```powershell
 [Environment]::SetEnvironmentVariable("AFIB_DATA_DIR", "C:\Users\<you>\OneDrive - <University>\AFIB-data", "User")
 ```
 
-Credentials (`cqg/credentials.json`, password and secret files), virtual environments, logs and exports are excluded by `.gitignore`.
+Without it, scripts use `data\` inside the repository, which only you see.
 
-## Bloomberg collector
+**3. Add keys (only for what you use).** These files are git-ignored and never leave your PC.
 
-```powershell
-python bloomberg/bbg_collect.py --status          # progress per dataset and account, no API use
-python bloomberg/bbg_collect.py                   # collect whatever is missing
-python bloomberg/bbg_collect.py --mandatory-only  # only what the credit regression needs
-```
+| For | Do |
+|---|---|
+| CME futures history (`cme`, dashboard) | `Copy-Item cme_challenge\.env.example cme_challenge\.env`, then paste the team's Databento API key into it |
+| CQG connection tests | `Copy-Item cqg\credentials.example.json cqg\credentials.json`, then fill in your own CQG login |
+| Bloomberg scripts | nothing: they use the Bloomberg Terminal logged in on the same PC |
 
-Each teammate runs it with their own Bloomberg login; `accounts.json` in the data folder lists the accounts (same order everywhere, never reordered). Work is split into batches and progress is saved after each one. With OneDrive, use one active collector at a time and wait for sync before another account resumes. An account that reaches Bloomberg's limit stops for the configured cooldown; another account can continue after the handoff.
+Open a **new** terminal in the repository folder. Commands below use `python`; in VS Code the terminal activates `.venv` for you, elsewhere run `.\.venv\Scripts\Activate.ps1` first. Always run from the repository root.
 
-## CME research without Bloomberg
-
-```powershell
-python cme_challenge/fetch_commodities.py
-python cme_challenge/summarize_seasonality.py
-```
-
-These commands save Yahoo continuous front-month commodity proxies and a descriptive calendar-month summary under `commodities/` in `AFIB_DATA_DIR` or the local `data/` fallback. They do not connect to Bloomberg or place trades. Roll discontinuities prevent the summary from being treated as tradable futures P&L.
-
-## Futures strategy research (contract-level)
-
-Yahoo's continuous series jump whenever the front contract changes, which fakes seasonal signals (October lean hogs is one). These scripts work from individual contracts instead, saved under `futures/` in the data folder.
-
-What to fetch and the rules for the credit are in [docs/CME_Data_Guide.md](docs/CME_Data_Guide.md). Commodity contract history comes from [Databento](https://databento.com/) (CME Globex since June 2010, expired contracts included; new accounts get free credit). One teammate creates an account, copies `cme_challenge/.env.example` to `cme_challenge/.env` and pastes the API key there (`.env` is never committed):
+## CME Trading Challenge: before each trade
 
 ```powershell
-Copy-Item cme_challenge\.env.example cme_challenge\.env                       # then edit the key in
-python cme_challenge/databento_contracts.py --estimate    # Databento's price for the download; nothing fetched
-python cme_challenge/databento_contracts.py               # all commodities; stops above $25 unless --yes
+cme                                            # signal database: what each strategy says today and its track record
+python cme_challenge\refresh.py --watch 15     # trading dashboard, rebuilt every 15 minutes (Ctrl+C to stop)
 ```
 
-Later runs add only the new days. Financial futures can come from Databento too (`--sectors all`) or from Bloomberg, on a PC with the Terminal (resumable; exit code 3 at a Bloomberg limit):
+**`cme`** covers the 18 commodities. For each one and each horizon (1, 2, 5 and 15 trading days) it gives every strategy's signal today and how well that signal predicted past moves: momentum, carry, seasonality, hedge-fund positioning (CFTC), a ridge regression combining them, and for natural gas and heating oil the weather, EIA storage and Europe's TTF price. Each signal gets a verdict:
+
+- **reliable**: survives the correction for testing hundreds of combinations (q < 0.10) and kept its sign over the last 3 years;
+- **suggestive**: |t| ≥ 2 but not corrected;
+- **noise**: everything else, which is most rows. The page says so rather than hiding it.
+
+Prices are current every time it runs. During the session each market gets a provisional bar for today from Yahoo's delayed price (about 10 minutes behind) of the contract it holds, and the output names the markets concerned. After 19:00 CT the settled day is downloaded from Databento (a few cents) and replaces it. Markets that have not opened yet keep yesterday's close. Other options: `cme --offline` (download nothing), `cme --root NG` (every row for one market). Output: `futures\cme\cme.html` in the data folder.
+
+**The dashboard** (`futures\dashboard.html`) covers all 34 markets, including equity index, rates and FX. It shows:
+
+- the top 8 ideas where trend, carry, seasonality and the model agree, with the contract to trade and a size for $5,000 of daily risk per position;
+- the natural-gas weather outlook from three forecast models;
+- the days left, the next Fed decision and the challenge rules: **be flat before Fri 30 Oct 16:00 CT, and trade at least 10 contracts every day**.
+
+One PC running `--watch` on the shared folder keeps the page current for everyone. `refresh.py` without `--watch` refreshes once. Add `--databento` to also pull new contract history and retrain the model.
+
+Check the live price in CQG before every order: Yahoo is delayed.
+
+## Bloomberg Global Trading Challenge: picking stocks
 
 ```powershell
-python bloomberg/futures_contracts.py --tiers 3                      # equity index, rates and FX
-python bloomberg/futures_contracts.py --status                       # progress and requests left, no API use
+python bloomberg\bgtc_screen.py               # Bloomberg PC: stock screen (resumes after a Bloomberg limit)
+python research\bgtc_events\strategy.py       # any PC: Russell 1000/2000 migration and credit avoid list
+python research\credit_ratings\regression.py  # any PC: implied credit ratings and IG/HY frontier names
 ```
 
-Then, on any PC:
+| Output (in the data folder) | What it gives |
+|---|---|
+| `bgtc\screen_<date>.xlsx` | Ranked candidates (12-month momentum, reaction to the last earnings, analyst upside), names reporting during the challenge, a credit-danger list, and only WLS members |
+| `bgtc\events_<date>.xlsx` | Stocks expected to move from the Russell 1000 to the 2000 at the December reconstitution (index buying: candidates), moves the other way (selling: avoid), names near the cut-off to watch, and the credit-outlook evidence |
+| `credit_ratings\regression_<date>.xlsx` | Ratings explained by fundamentals; IG names weaker than their rating (fallen-angel risk) and HY names stronger (rising-star candidates) |
+
+Russell dates: membership is set on **Fri 30 Oct** (rank day), preliminary lists come out **Fri 13 Nov** and changes take effect after the close on **Fri 11 Dec**. Re-run `strategy.py` after 30 Oct with that day's prices. `strategy.py --credit-veto` also drops candidates with a negative outlook at BBB-/Baa3 or below. Before buying, check each pick is in the WLS Index (`MEMB` on the Terminal) and look at its total market cap across share classes.
+
+## Collecting data
+
+Bloomberg data comes from each teammate's own Terminal login and is shared through the data folder:
 
 ```powershell
-python cme_challenge/continuous.py                                   # roll-correct series (Databento where available)
-python cme_challenge/futures_research.py window --start 10-09 --end 10-30 --detail LC
-python cme_challenge/futures_research.py backtest --horizon 15       # trend and carry portfolios
-python cme_challenge/futures_research.py signals --risk 5000         # current signals and position sizes
-python cme_challenge/futures_research.py sizing                       # constant size vs volatility targeting
-python cme_challenge/model.py                                        # walk-forward model for the dashboard
+python bloomberg\bbg_collect.py --status          # progress per dataset and account, no API use
+python bloomberg\bbg_collect.py                   # collect whatever is missing
+python bloomberg\bbg_collect.py --mandatory-only  # only what the credit regression needs
 ```
 
-Returns are within-contract price changes before commissions. They describe history and are not trade recommendations.
+`accounts.json` in the data folder lists the team's Bloomberg accounts (same order everywhere, never reordered). Work is split into batches saved one by one, so any account can carry on where another stopped. When an account hits Bloomberg's daily limit it stops (exit code 3) and waits out a cooldown, and another account can take over. With OneDrive, run one collector at a time and let the folder sync before the next account starts.
 
-## Trading desk: latest data and model view before each trade
+CME contract history comes from [Databento](https://databento.com/): CME Globex since June 2010, expired contracts included. What it costs and what to fetch is in [docs/CME_Data_Guide.md](docs/CME_Data_Guide.md).
 
 ```powershell
-python cme_challenge/refresh.py --watch 15      # refresh every 15 minutes during trading; Ctrl+C to stop
-python cme_challenge/refresh.py                 # refresh once and open the dashboard
-python cme_challenge/refresh.py --databento     # also add the latest Databento history and retrain the model
+python cme_challenge\databento_contracts.py --estimate   # price of the download, nothing fetched
+python cme_challenge\databento_contracts.py              # commodities; stops above $25 unless --yes
+python bloomberg\futures_contracts.py --tiers 3          # Bloomberg PC: equity index, rates and FX contracts
+python cme_challenge\continuous.py                       # roll-correct series from the contracts
 ```
 
-Each refresh:
-- pulls the latest prices for all 34 markets from Yahoo (delayed about 10 minutes) and picks the contract to trade;
-- recomputes trend, carry, seasonality and the model's view, with position sizes;
-- fetches the US gas-demand weather outlook (heating and cooling degree days, 26 cities) from ECMWF's AI model (AIFS), ECMWF IFS and NOAA GFS through [Open-Meteo](https://open-meteo.com/), which is free for non-commercial use;
-- writes `futures/dashboard.html` in the data folder.
+Later runs add only the new days; `cme` and `refresh.py --databento` do this for you.
 
-With the shared OneDrive folder, one PC running `--watch` keeps the dashboard current for the whole team; the page reloads itself in the browser. Seasonality and the model view appear once the contract history has been collected (previous section). Weather normals come from 16 years of actual weather per city, downloaded a couple of cities per refresh until complete (or at once with `python cme_challenge/weather_strategy.py --ceiling`). To refresh without a terminal open, schedule `refresh.py --no-browser` with Windows Task Scheduler.
+## Research scripts
 
-## Signal database: `cme`
-
-From the repository folder (the Windows setup script also puts it on the PATH, so any new terminal works):
+These are the studies behind the tools. Each prints its results and saves a file in the data folder.
 
 ```powershell
-cme                 # update every source, print the views, open futures/cme/cme.html
-cme --offline       # use what is saved, download nothing
-cme --root NG       # also print every strategy and horizon for natural gas
+python cme_challenge\futures_research.py window --start 10-16 --end 11-13   # seasonal window, every market
+python cme_challenge\futures_research.py backtest --horizon 15              # trend and carry portfolios
+python cme_challenge\futures_research.py signals --risk 5000                # today's signals and sizes
+python cme_challenge\futures_research.py sizing                             # constant size vs volatility targeting
+python cme_challenge\model.py                                               # walk-forward model for the dashboard
+python cme_challenge\event_strategies.py                                    # pre-Fed drift, weekly reversal
+python cme_challenge\weather_strategy.py                                    # natural gas weather strategies
+python research\credit_ratings\check_regression_data.py                     # is the credit data complete enough?
+python research\credit_ratings\crossover.py                                 # Bloomberg PC: BBB-/BB+ issuers today
 ```
 
-For each of the 18 CME commodities and each horizon (1, 2, 5 and 15 trading days) it lists every strategy's signal today and its record: momentum over 1 day to 12 months (a negative IC means moves reverse), carry, seasonality, hedge fund positioning (CFTC), a ridge regression combining them, and for natural gas the weather (gas-weighted heating plus cooling degree days), EIA storage against its 5-year average and Europe's TTF price. Heating oil also gets the weather signals.
-
-The record is an information coefficient measured without look-ahead: each signal is standardised on its own past, the t-statistic comes from yearly blocks, and q-values correct for testing hundreds of combinations. Each strategy is also tested on all 18 markets together, which can prove an edge too small to see market by market. "Reliable" means q below 0.10 and the same sign over the last 3 years; most rows are noise, and the page says so rather than hiding it.
-
-Each run adds the missing Databento days (cents) when the history is behind, and refreshes CFTC positioning, EIA storage and monthly LNG exports and production, TTF, active hurricanes and the weather. Results go to `futures/cme/` in the data folder: `signals.csv` (every row), `summary.csv` (per market and horizon) and `cme.html` (sortable, filterable). The trading dashboard links to it.
-
-## Research workflow (Russell liquidity)
+Russell liquidity research (Bloomberg PC; collection is incomplete, see [its README](research/russell_liquidity/README.txt)):
 
 ```powershell
-python research/russell_liquidity/collect_russell_research.py
-python research/russell_liquidity/collect_russell_research.py --build-only
-python research/russell_liquidity/recover_russell_available.py
+python research\russell_liquidity\collect_russell_research.py               # collect, resuming from its cache
+python research\russell_liquidity\collect_russell_research.py --build-only  # rebuild exports from the cache
+python research\russell_liquidity\recover_russell_available.py              # partial exports from saved data
 ```
 
-The first command collects data and resumes using completed cached responses. `--build-only` rebuilds exports from the collector's cache; `recover_russell_available.py` also combines available data from earlier collections.
+## Repository layout
 
-Collection is currently incomplete following a Bloomberg daily capacity response. Exports must be checked for missing data and coverage before regressions. The scripts do not establish that exclusion from the S&P 500 causes lower liquidity or creates an arbitrage opportunity.
+| Folder | Contents |
+|---|---|
+| `cme_challenge/` | CME challenge: Databento collection, roll-correct series, research, model, dashboard (`refresh.py`, `live.py`), signal database (`signal_db.py`) with positioning (`cot.py`), gas (`gas.py`) and weather (`weather.py`). No Bloomberg needed |
+| `bloomberg/` | Needs a Terminal: data collector (`bbg_collect.py`), stock screen (`bgtc_screen.py`), futures contracts (`futures_contracts.py`), access checks (`query.py`, `cme_probe.py`) |
+| `research/bgtc_events/` | Russell 1000/2000 migration and credit-outlook strategy for the Bloomberg challenge, from saved data |
+| `research/credit_ratings/` | IG/HY crossover screen, rating regression and data checks |
+| `research/russell_liquidity/` | Russell membership and liquidity research |
+| `cqg/` | CQG Web API connection tests and the credentials template |
+| `tools/` | Windows setup script, shared-folder check (`check_shared_data.py`), a runner that keeps the commands in `programs.txt` alive |
+| `docs/` | [OneDrive setup](docs/OneDrive_Setup.md), [CME data guide](docs/CME_Data_Guide.md), the original [setup guide PDF](docs/Team_Setup_Guide_Bloomberg_Python_VSCode.pdf) (the OneDrive guide replaces its shared-folder part) |
+| `tests/` | Offline tests: no Bloomberg, CQG or network needed |
+| `vendor/cqg_proto/` | CQG's generated protocol files, under `vendor/cqg_proto/LICENSE.md` |
+| `cme`, `cme.bat` | The `cme` command (Linux/macOS and Windows) |
+| `data_root.py`, `futures_markets.py` | Where the data folder is; the futures markets and their contract details |
 
-## Tests
+## Rules for the repository
 
-```powershell
-python -m unittest discover -s tests
-```
+- **The repository is public. Never commit data or secrets.** Bloomberg data is licensed to each user. `.gitignore` already keeps out `data/`, `.env`, credentials, spreadsheets, parquet files, logs and `.venv`.
+- Run `python -m unittest discover -s tests` before pushing; it takes about 30 seconds.
+- Without Windows: create `.venv` with `python3 -m venv .venv` and install `requirements.txt` (`blpapi` only matters on a Bloomberg PC). Then use `./cme` and `.venv/bin/python` in place of `cme` and `python`.
