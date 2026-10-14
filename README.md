@@ -9,7 +9,7 @@ The full Python/Bloomberg setup walkthrough is in [docs/Team_Setup_Guide_Bloombe
 | Folder | Contents |
 |---|---|
 | `bloomberg/` | `bbg_collect.py` (resumable, multi-account collector), `futures_contracts.py` (futures contract histories from Bloomberg), `bgtc_screen.py` (stock screen for the Bloomberg Global Trading Challenge), `query.py` (quote example), `cme_probe.py` (checks Bloomberg access to CME futures data) |
-| `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`) and regression data checks |
+| `research/credit_ratings/` | IG/HY crossover screen (`crossover.py`), regression data checks and the cross-sectional rating regression (`regression.py`: rating explained by size, leverage, coverage, profitability and equity volatility; out-of-sample implied ratings and the IG/HY frontier names to watch; offline) |
 | `research/bgtc_events/` | `strategy.py`: Bloomberg challenge event strategies from saved data, Russell 1000/2000 migration at the December 2026 reconstitution (rank day 30 Oct) and IG/HY rating-outlook evidence and avoid list |
 | `research/russell_liquidity/` | Russell membership and liquidity research; see its [README](research/russell_liquidity/README.txt) |
 | `cme_challenge/` | CME challenge research: contract histories from Databento, roll-correct series, strategy research (seasonal windows, trend, carry), the model, the trading desk dashboard and the signal database (`signal_db.py`, run by `cme`) with hedge fund positioning (`cot.py`), gas fundamentals (`gas.py`) and weather; no Bloomberg login needed |
