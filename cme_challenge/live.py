@@ -46,14 +46,14 @@ def listed_contracts(market, today, months_ahead=15):
     return out
 
 
-def download(tickers):
+def download(tickers, period="2y"):
     import logging
     import yfinance as yf
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)  # contracts not listed yet are expected
     frames = {}
     for i in range(0, len(tickers), 60):
         batch = tickers[i:i + 60]
-        raw = yf.download(batch, period="2y", interval="1d", group_by="ticker", auto_adjust=False,
+        raw = yf.download(batch, period=period, interval="1d", group_by="ticker", auto_adjust=False,
                           progress=False, threads=True)
         if raw.empty:
             continue

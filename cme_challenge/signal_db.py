@@ -81,6 +81,9 @@ SECTORS = ("Energy", "Metals", "Grains", "Livestock")
 VOL_DAYS, MIN_OBS, RECENT_YEARS, FIRST_RIDGE_YEAR = 63, 250, 3, 2014
 Z_CAP, RETURN_CAP = 3.0, 4.0
 WEATHER_ROOTS, GAS_ROOT = ("NG", "HO"), "NG"
+CT = "America/Chicago"
+SETTLED_CT = 19  # Databento's daily bars end at midnight UTC: 19:00 CT in summer, 18:00 in winter
+PROVISIONAL_TOLERANCE = 0.03  # Yahoo and the series may differ a little on the close, not by a unit change
 DESCRIPTION = {
     "mom_1d": "yesterday's move", "mom_5d": "last week's move", "mom_21d": "last month's move",
     "mom_63d": "last 3 months' move", "mom_252d": "last 12 months' move", "carry": "backwardation",
@@ -339,19 +342,59 @@ def summary(db):
 # --------------------------------------------------------------------------- updates
 
 def update_history(notes):
-    """Add the missing Databento days (cents) when the commodity series end before the previous trading day."""
+    """Add the missing Databento days (cents) when the series miss the previous trading day, or today's session
+    once it has settled (after SETTLED_CT)."""
     import databento_contracts
     import refresh
     newest = max((pd.read_parquet(SERIES / f"{r}.parquet", columns=["ret"]).index.max() for r in commodity_roots()),
                  default=None)
-    today = pd.Timestamp.now(tz="America/Chicago").tz_localize(None).normalize()
-    if newest is not None and newest >= today - pd.offsets.BDay(1):
+    now = pd.Timestamp.now(tz=CT).tz_localize(None)
+    today = now.normalize()
+    settled = now.hour >= SETTLED_CT and today.dayofweek < 5
+    if newest is not None and newest >= (today if settled else today - pd.offsets.BDay(1)):
         return
     if not (os.environ.get("DATABENTO_API_KEY") or databento_contracts.env_file_key()):
         notes.append("Contract history not updated: no Databento key in cme_challenge/.env")
         return
     refresh.update_history(notes, databento=True, bloomberg=False)
     refresh.update_model(notes)
+
+
+def add_today(series, notes, quotes=None):
+    """Append today's provisional bar to each series that ends before today: Yahoo's delayed price of the very
+    contract the series holds, against the series' own last price, so the signals read the market as it is now.
+    The next Databento update replaces it with the settled day. Markets not trading yet keep yesterday's close;
+    a market whose Yahoo price disagrees with the series on the last common day (other units) is left alone."""
+    now = pd.Timestamp.now(tz=CT).tz_localize(None)
+    today = now.normalize()
+    stale = {r: s for r, s in series.items() if s.index[-1] < today}
+    if not stale:
+        return series
+    tickers = {r: f"{s['contract'].iloc[-1]}.{MARKETS.get(r, MARKETS.get(f'{r} ')).exchange}" for r, s in stale.items()}
+    if quotes is None:
+        import live
+        quotes = live.download(sorted(set(tickers.values())), period="5d")
+    added, skipped = [], []
+    for root, s in stale.items():
+        q = quotes.get(tickers[root])
+        if q is None or q.index[-1].normalize() != today:
+            continue  # no trade yet today
+        last_day, last = s.index[-1], s.iloc[-1]
+        before = q["Close"][q.index.normalize() == last_day]
+        if before.empty or abs(before.iloc[-1] / last["price"] - 1) > PROVISIONAL_TOLERANCE:
+            skipped.append(root)
+            continue
+        ret = q["Close"].iloc[-1] / last["price"] - 1
+        row = last.copy()
+        row[["price", "ret", "next_price", "index"]] = [last["price"] * (1 + ret), ret, np.nan, last["index"] * (1 + ret)]
+        series[root] = pd.concat([s, row.to_frame(today).T.astype(s.dtypes)])
+        added.append(root)
+    if added:
+        notes.append(f"{today.date()} is provisional for {', '.join(added)}: Yahoo's delayed price at {now:%H:%M} CT "
+                     f"until the session settles")
+    if skipped:
+        notes.append(f"No provisional bar for {', '.join(skipped)}: Yahoo's price disagrees with the contract history")
+    return series
 
 
 def run(update, notes):
@@ -363,6 +406,11 @@ def run(update, notes):
     series = {r: pd.read_parquet(SERIES / f"{r}.parquet") for r in commodity_roots()}
     if not series:
         raise SystemExit(f"No commodity series in {SERIES}: run cme_challenge/databento_contracts.py and continuous.py")
+    if update:
+        try:
+            series = add_today(series, notes)
+        except Exception as e:  # the settled history is still there
+            notes.append(f"Today's provisional prices unavailable: {e}")
     try:
         cot_table = cot.load(update)
     except Exception as e:
