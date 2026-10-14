@@ -1,0 +1,73 @@
+{
+  "model": "gpt-4o",
+  "temperature": 0,
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "cme_news_read",
+      "strict": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["as_of", "headlines", "markets", "warnings"],
+        "properties": {
+          "as_of": {"type": "string", "description": "Copy of the input as_of"},
+          "headlines": {
+            "type": "array",
+            "description": "One entry per input headline, in input order",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "relevant", "markets", "event_type", "surprise", "direction", "magnitude",
+                           "horizon", "already_priced", "confidence", "evidence"],
+              "properties": {
+                "id": {"type": "string"},
+                "relevant": {"type": "boolean", "description": "Could move at least one listed market by a noticeable fraction of its normal daily move"},
+                "markets": {"type": "array", "items": {"type": "string"}, "description": "Roots from the input market list only; empty if not relevant"},
+                "event_type": {"type": "string", "enum": ["scheduled_data", "supply", "demand", "weather", "policy_regulation",
+                                                          "central_bank_macro", "geopolitics", "positioning_flows", "corporate",
+                                                          "opinion_forecast", "other"]},
+                "surprise": {"type": "string", "enum": ["above_expectations", "below_expectations", "in_line",
+                                                        "unscheduled", "no_expectation_given"]},
+                "direction": {"type": "string", "enum": ["bullish", "bearish", "mixed", "none"], "description": "For the price of the listed markets' front contracts; mixed if markets go opposite ways"},
+                "magnitude": {"type": "string", "enum": ["none", "small", "medium", "large"], "description": "small < 1/3 of a normal daily move, medium 1/3 to 1, large > 1"},
+                "horizon": {"type": "string", "enum": ["hours", "1_3_days", "longer", "unclear"]},
+                "already_priced": {"type": "string", "enum": ["likely", "possibly", "unlikely", "unknown"], "description": "Compare the headline time with as_of and with any price move given in the input"},
+                "confidence": {"type": "number", "description": "0 to 1: probability the direction is right"},
+                "evidence": {"type": "string", "description": "The exact words of the headline the judgement rests on"}
+              }
+            }
+          },
+          "markets": {
+            "type": "array",
+            "description": "Only markets with at least one relevant headline; sorted by |score| then confidence, strongest first",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["market", "score", "confidence", "horizon", "headline_ids", "reason"],
+              "properties": {
+                "market": {"type": "string", "description": "Root from the input market list"},
+                "score": {"type": "integer", "enum": [-2, -1, 0, 1, 2], "description": "-2 strongly bearish ... +2 strongly bullish, net of all its headlines"},
+                "confidence": {"type": "number", "description": "0 to 1"},
+                "horizon": {"type": "string", "enum": ["hours", "1_3_days", "longer", "unclear"]},
+                "headline_ids": {"type": "array", "items": {"type": "string"}},
+                "reason": {"type": "string", "description": "At most 30 words, citing the headline ids"}
+              }
+            }
+          },
+          "warnings": {"type": "array", "items": {"type": "string"}, "description": "Conflicting headlines, stale news, missing expectations, anything that lowers reliability"}
+        }
+      }
+    }
+  },
+  "messages": [
+    {
+      "role": "system",
+      "content": "You read news for a CME futures desk. You classify; you do not give trading advice.\n\nRules:\n1. Use ONLY the headlines in the input. Do not add facts, prices or events from memory, and do not guess what happened after as_of.\n2. Judge every headline on its own first (headlines array), then net them per market (markets array). Every market entry must cite headline ids.\n3. Default to not relevant, direction none, magnitude none. Most news does not move futures prices; only mark a headline relevant if a professional trader would expect a noticeable price reaction.\n4. Scheduled data (EIA storage and inventories, USDA WASDE and crop progress, CFTC, payrolls, CPI, central banks): the price reacts to the SURPRISE against expectations, not to the level. If the headline gives no expectation, set surprise to no_expectation_given, confidence at most 0.5.\n5. Opinions, forecasts and analyst notes: event_type opinion_forecast, magnitude at most small unless from a major official source (OPEC, USDA, EIA, IEA, Fed).\n6. Older than about 2 hours before as_of, or already reflected in a price move given in the input: already_priced likely.\n7. Directions refer to the price of the market's front contract. Include markets linked through substitutes and inputs only when the link is direct (for example, a crude supply cut is bullish CL, HO and RB; a large US corn crop is bearish ZC, and only weakly affects ZS, ZW and KE).\n8. Duplicates of the same story: judge the first, mark the others relevant false with a warning.\n9. Confidence is a probability. 0.5 means a coin flip. Above 0.8 only for unambiguous, large, unscheduled surprises.\n10. If headlines conflict, net them in the markets array and explain in warnings.\n11. Output must match the JSON schema exactly. No text outside the JSON."
+    },
+    {
+      "role": "user",
+      "content": "Replace this message with the output of: python cme_challenge/news_request.py headlines.txt  (it fills as_of, the market list with today's contracts, and your headlines as JSON)."
+    }
+  ]
+}

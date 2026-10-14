@@ -62,6 +62,14 @@ One PC running `--watch` on the shared folder keeps the page current for everyon
 
 Check the live price in CQG before every order: Yahoo is delayed.
 
+**News, read by GPT, only when you need it.** Paste the headlines you care about into a text file (one per line, optionally `HH:MM | source | text`), then:
+
+```powershell
+python cme_challenge\news_request.py headlines.txt
+```
+
+It writes two files in `futures\news\`: `prompt_<time>.txt` to paste into ChatGPT (no API cost), and `request_<time>.json` to send to the API. GPT gets the headlines, the time and today's contracts, but not our signals, so its reading stays independent. It must answer in a fixed JSON form (`cme_challenge\gpt_news_request.json`, temperature 0): each headline judged against expectations, every conclusion citing its headline, "no effect" by default. Ask twice and trust only what both answers agree on.
+
 ## Bloomberg Global Trading Challenge: picking stocks
 
 ```powershell
@@ -113,6 +121,9 @@ python cme_challenge\futures_research.py sizing                             # co
 python cme_challenge\model.py                                               # walk-forward model for the dashboard
 python cme_challenge\event_strategies.py                                    # pre-Fed drift, weekly reversal
 python cme_challenge\weather_strategy.py                                    # natural gas weather strategies
+python cme_challenge\intraday_momentum.py fetch                             # hourly bars from Databento ($14, once)
+python cme_challenge\intraday_momentum.py                                   # does the day so far predict the last hour?
+python cme_challenge\short_term_momentum.py                                 # 1-10 day momentum and reversal, by VIX regime
 python research\credit_ratings\check_regression_data.py                     # is the credit data complete enough?
 python research\credit_ratings\crossover.py                                 # Bloomberg PC: BBB-/BB+ issuers today
 ```
@@ -125,11 +136,28 @@ python research\russell_liquidity\collect_russell_research.py --build-only  # re
 python research\russell_liquidity\recover_russell_available.py              # partial exports from saved data
 ```
 
+## What the research found (before you trade or re-test)
+
+Measured on our data; after costs unless stated. Details are in each script's output in `futures\research\` and `bgtc\`.
+
+| Idea | Result | Use it? |
+|---|---|---|
+| Trend + carry + seasonality model, 15-day holds (`model.py`) | Sharpe 0.36 out of sample 2012-2026 before costs, 0.44 over the last 5 years; mostly 12-month trend | Yes: it drives the dashboard. Small edge, so spread risk over many markets |
+| Intraday momentum: the day so far predicts the last hour (`intraday_momentum.py`) | Real before costs (Sharpe 0.9, but 0.3 since 2018); about 2% of a normal last-hour move, while one tick costs about 7% | No: loses even paying only the spread |
+| Short-term reversal or its opposite, 1-10 days (`short_term_momentum.py`, `event_strategies.py`) | 1-day reversal strong over the last 3 years but flat in 2010-2017; 5-day momentum worked until 2017, not since | No: unstable across periods |
+| Seasonal windows (`futures_research.py window`) | Nothing survives the correction for testing 33 markets over the challenge dates | No |
+| Turn of the month in equity index futures | Not significant since 2000 (t below 0.6), slightly negative since 2015 | No |
+| Pre-Fed drift (`event_strategies.py`) | Dollar weakens on decision days since 2000 (pound and euro t about 3); the equity drift has faded | As a check before Fed days |
+| Positive rating outlooks, stocks (`research\bgtc_events`) | Moody's positive outlooks were followed by -2.2% over 20 days (t -2.2) | No: use ratings only as an avoid list |
+| Russell 1000 to 2000 moves at the December reconstitution | Index-flow effect documented in the literature (Chang, Hong and Liskovich 2015); not yet tested on our data | Yes, with the checks in the Bloomberg section |
+
+High leverage multiplies trading costs as much as returns: none of the hours-to-days edges above survives costs, so trade less, with conviction, and size to volatility. To meet the 10-contracts-a-day minimum cheaply, use markets with the smallest cost per trade relative to their move (heating oil and gasoline under 1 bp a round trip, corn about 7.5 bp).
+
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
-| `cme_challenge/` | CME challenge: Databento collection, roll-correct series, research, model, dashboard (`refresh.py`, `live.py`), signal database (`signal_db.py`) with positioning (`cot.py`), gas (`gas.py`) and weather (`weather.py`). No Bloomberg needed |
+| `cme_challenge/` | CME challenge: Databento collection, roll-correct series, research (`futures_research.py`, `event_strategies.py`, `intraday_momentum.py`, `short_term_momentum.py`), model, dashboard (`refresh.py`, `live.py`), signal database (`signal_db.py`) with positioning (`cot.py`), gas (`gas.py`) and weather (`weather.py`), GPT news request (`news_request.py`, `gpt_news_request.json`). No Bloomberg needed |
 | `bloomberg/` | Needs a Terminal: data collector (`bbg_collect.py`), stock screen (`bgtc_screen.py`), futures contracts (`futures_contracts.py`), access checks (`query.py`, `cme_probe.py`) |
 | `research/bgtc_events/` | Russell 1000/2000 migration and credit-outlook strategy for the Bloomberg challenge, from saved data |
 | `research/credit_ratings/` | IG/HY crossover screen, rating regression and data checks |
